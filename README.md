@@ -9,6 +9,8 @@ App Android (Kotlin) para controle pessoal do Spotify com Spotify App Remote.
 - Comandos de `play`, `pause`, `resume` e leitura de status real (`PlayerState`).
 - Tratamento para Spotify nao instalado e falhas de conexao/autenticacao.
 - Auto-retomada quando o player pausa de forma inesperada (sem pausa manual).
+- Botao `Ver tops` para carregar top musicas, top artistas, playlists e musicas recentes via Spotify Web API.
+- Auto-update no app via GitHub Releases (botao `Atualizar app`).
 
 ## Requisitos
 
@@ -57,9 +59,11 @@ Obs:
 2. Informe uma playlist URI (`spotify:playlist:<id>`) ou link `https://open.spotify.com/playlist/<id>`.
 3. Toque em `Dar play na playlist`.
 4. Use `Pausar`, `Retomar` e `Checar status` para controle.
+5. Toque em `Ver tops` para autorizar a Web API e ver seus tops.
 
 ## Observacoes
 
 - Uso pessoal apenas.
 - Se voce pausar manualmente, o app respeita a pausa.
 - Se houver pausa inesperada durante a sessao ativa, o app tenta retomar automaticamente.
+- A Spotify Web API nao expõe historico completo de toda a vida; o app mostra tops e recentes disponiveis na API.

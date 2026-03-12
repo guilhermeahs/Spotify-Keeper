@@ -25,6 +25,10 @@ android {
         targetSdk 34
         versionCode appVersionCode
         versionName appVersionName
+        manifestPlaceholders = [
+            redirectSchemeName: "spotifykeeper",
+            redirectHostName  : "callback"
+        ]
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -66,6 +70,7 @@ dependencies {
     implementation 'com.google.android.material:material:1.12.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
     implementation files('libs/spotify-app-remote-release-0.8.0.aar')
+    implementation files('libs/spotify-auth-release-2.1.0.aar')
     implementation 'com.google.code.gson:gson:2.10.1'
 
     testImplementation 'junit:junit:4.13.2'

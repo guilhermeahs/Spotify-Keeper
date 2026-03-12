@@ -6,12 +6,22 @@ import android.os.Bundle
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.onix.spotifykeeper.databinding.ActivityMainBinding
+import com.spotify.sdk.android.auth.AuthorizationClient
+import com.spotify.sdk.android.auth.AuthorizationRequest
+import com.spotify.sdk.android.auth.AuthorizationResponse
+import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var spotifyController: SpotifyController
     private lateinit var appUpdater: AppUpdater
+    private lateinit var spotifyInsightsService: SpotifyInsightsService
+
+    private val ioExecutor = Executors.newSingleThreadExecutor()
+
+    private var webApiAccessToken: String? = null
+    private var pendingTopRequest = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -22,6 +32,8 @@ class MainActivity : AppCompatActivity() {
             renderStatus(status)
         }
         appUpdater = AppUpdater(this)
+        spotifyInsightsService = SpotifyInsightsService()
+
         bindActions()
         renderStatus("Projeto iniciado. Conecte ao Spotify.")
         checkForUpdates(silent = true)
@@ -57,8 +69,42 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
+        binding.topStatsButton.setOnClickListener {
+            loadTopStats()
+        }
+
         binding.updateButton.setOnClickListener {
             checkForUpdates(silent = false)
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+
+        if (requestCode != REQUEST_CODE_SPOTIFY_AUTH) {
+            return
+        }
+
+        val response = AuthorizationClient.getResponse(resultCode, data)
+        when (response.type) {
+            AuthorizationResponse.Type.TOKEN -> {
+                webApiAccessToken = response.accessToken
+                renderStatus("Autorizacao concluida para carregar tops.")
+                if (pendingTopRequest) {
+                    pendingTopRequest = false
+                    loadTopStats()
+                }
+            }
+
+            AuthorizationResponse.Type.ERROR -> {
+                pendingTopRequest = false
+                renderStatus("Falha na autorizacao para tops: ${response.error}")
+            }
+
+            else -> {
+                pendingTopRequest = false
+                renderStatus("Autorizacao para tops cancelada.")
+            }
         }
     }
 
@@ -66,6 +112,7 @@ class MainActivity : AppCompatActivity() {
         if (::spotifyController.isInitialized) {
             spotifyController.disconnect()
         }
+        ioExecutor.shutdownNow()
         super.onDestroy()
     }
 
@@ -97,5 +144,100 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    private fun loadTopStats() {
+        val token = webApiAccessToken
+        if (token.isNullOrBlank()) {
+            pendingTopRequest = true
+            renderStatus("Autorizando acesso aos seus tops no Spotify...")
+            requestTopAuthorization()
+            return
+        }
+
+        renderStatus("Carregando tops de musicas, artistas e playlists...")
+        ioExecutor.execute {
+            val result = runCatching {
+                spotifyInsightsService.fetchTopSummary(token)
+            }
+
+            runOnUiThread {
+                result.onSuccess { summary ->
+                    renderStatus(formatTopSummary(summary))
+                }.onFailure { error ->
+                    if (error.message == "TOKEN_EXPIRED") {
+                        webApiAccessToken = null
+                        renderStatus("Token expirou. Toque em 'Ver tops' novamente para autorizar.")
+                    } else {
+                        renderStatus("Falha ao carregar tops: ${error.message}")
+                    }
+                }
+            }
+        }
+    }
+
+    private fun requestTopAuthorization() {
+        val request = AuthorizationRequest.Builder(
+            BuildConfig.SPOTIFY_CLIENT_ID,
+            AuthorizationResponse.Type.TOKEN,
+            BuildConfig.SPOTIFY_REDIRECT_URI
+        )
+            .setScopes(TOP_SCOPES)
+            .setShowDialog(true)
+            .build()
+
+        AuthorizationClient.openLoginActivity(this, REQUEST_CODE_SPOTIFY_AUTH, request)
+    }
+
+    private fun formatTopSummary(summary: SpotifyTopSummary): String {
+        val tracks = if (summary.topTracks.isEmpty()) {
+            "Sem dados"
+        } else {
+            summary.topTracks.mapIndexed { index, item -> "${index + 1}. $item" }.joinToString("\n")
+        }
+
+        val artists = if (summary.topArtists.isEmpty()) {
+            "Sem dados"
+        } else {
+            summary.topArtists.mapIndexed { index, item -> "${index + 1}. $item" }.joinToString("\n")
+        }
+
+        val playlists = if (summary.playlists.isEmpty()) {
+            "Sem dados"
+        } else {
+            summary.playlists.mapIndexed { index, item -> "${index + 1}. $item" }.joinToString("\n")
+        }
+
+        val recent = if (summary.recentlyPlayed.isEmpty()) {
+            "Sem dados"
+        } else {
+            summary.recentlyPlayed.mapIndexed { index, item -> "${index + 1}. $item" }.joinToString("\n")
+        }
+
+        return """
+            Seus Tops:
+
+            Top musicas:
+            $tracks
+
+            Top artistas:
+            $artists
+
+            Suas playlists:
+            $playlists
+
+            Musicas recentes (ultimas 20):
+            $recent
+        """.trimIndent()
+    }
+
+    private companion object {
+        const val REQUEST_CODE_SPOTIFY_AUTH = 9876
+        val TOP_SCOPES = arrayOf(
+            "user-top-read",
+            "user-read-recently-played",
+            "playlist-read-private",
+            "playlist-read-collaborative"
+        )
     }
 }
