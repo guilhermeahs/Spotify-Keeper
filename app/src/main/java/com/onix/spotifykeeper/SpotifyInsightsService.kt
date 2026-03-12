@@ -1,15 +1,72 @@
 package com.onix.spotifykeeper
 
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
-data class SpotifyTopSummary(
-    val topTracks: List<String>,
-    val topArtists: List<String>,
-    val playlists: List<String>,
-    val recentlyPlayed: List<String>
+data class SpotifyMediaItem(
+    val title: String,
+    val subtitle: String? = null,
+    val imageUrl: String? = null
 )
+
+data class SpotifyTopSummary(
+    val topTracks: List<SpotifyMediaItem>,
+    val topArtists: List<SpotifyMediaItem>,
+    val playlists: List<SpotifyMediaItem>,
+    val recentlyPlayed: List<SpotifyMediaItem>
+) {
+
+    fun toJsonString(): String {
+        return JSONObject().apply {
+            put("topTracks", toJsonArray(topTracks))
+            put("topArtists", toJsonArray(topArtists))
+            put("playlists", toJsonArray(playlists))
+            put("recentlyPlayed", toJsonArray(recentlyPlayed))
+        }.toString()
+    }
+
+    private fun toJsonArray(items: List<SpotifyMediaItem>): JSONArray {
+        return JSONArray().apply {
+            items.forEach { item ->
+                put(
+                    JSONObject().apply {
+                        put("title", item.title)
+                        put("subtitle", item.subtitle ?: "")
+                        put("imageUrl", item.imageUrl ?: "")
+                    }
+                )
+            }
+        }
+    }
+
+    companion object {
+        fun fromJsonString(json: String): SpotifyTopSummary {
+            val root = JSONObject(json)
+            return SpotifyTopSummary(
+                topTracks = parseArray(root.optJSONArray("topTracks")),
+                topArtists = parseArray(root.optJSONArray("topArtists")),
+                playlists = parseArray(root.optJSONArray("playlists")),
+                recentlyPlayed = parseArray(root.optJSONArray("recentlyPlayed"))
+            )
+        }
+
+        private fun parseArray(array: JSONArray?): List<SpotifyMediaItem> {
+            if (array == null) return emptyList()
+            return (0 until array.length()).mapNotNull { index ->
+                val item = array.optJSONObject(index) ?: return@mapNotNull null
+                val title = item.optString("title")
+                if (title.isBlank()) return@mapNotNull null
+                SpotifyMediaItem(
+                    title = title,
+                    subtitle = item.optString("subtitle").takeIf { it.isNotBlank() },
+                    imageUrl = item.optString("imageUrl").takeIf { it.isNotBlank() }
+                )
+            }
+        }
+    }
+}
 
 class SpotifyInsightsService {
 
@@ -27,43 +84,88 @@ class SpotifyInsightsService {
         )
     }
 
-    private fun parseTopTracks(json: JSONObject): List<String> {
+    private fun parseTopTracks(json: JSONObject): List<SpotifyMediaItem> {
         val items = json.optJSONArray("items") ?: return emptyList()
         return (0 until items.length()).mapNotNull { index ->
             val item = items.optJSONObject(index) ?: return@mapNotNull null
             val name = item.optString("name")
-            val artists = item.optJSONArray("artists")
-            val artist = artists?.optJSONObject(0)?.optString("name").orEmpty()
+            val artist = item.optJSONArray("artists")?.optJSONObject(0)?.optString("name").orEmpty()
+            val imageUrl = item.optJSONObject("album")
+                ?.optJSONArray("images")
+                ?.optJSONObject(0)
+                ?.optString("url")
             if (name.isBlank()) return@mapNotNull null
-            if (artist.isBlank()) name else "$name - $artist"
+            SpotifyMediaItem(
+                title = name,
+                subtitle = artist.ifBlank { null },
+                imageUrl = imageUrl?.takeIf { it.isNotBlank() }
+            )
         }
     }
 
-    private fun parseTopArtists(json: JSONObject): List<String> {
-        val items = json.optJSONArray("items") ?: return emptyList()
-        return (0 until items.length()).mapNotNull { index ->
-            items.optJSONObject(index)?.optString("name")?.takeIf { it.isNotBlank() }
-        }
-    }
-
-    private fun parsePlaylists(json: JSONObject): List<String> {
-        val items = json.optJSONArray("items") ?: return emptyList()
-        return (0 until items.length()).mapNotNull { index ->
-            items.optJSONObject(index)?.optString("name")?.takeIf { it.isNotBlank() }
-        }
-    }
-
-    private fun parseRecentlyPlayed(json: JSONObject): List<String> {
+    private fun parseTopArtists(json: JSONObject): List<SpotifyMediaItem> {
         val items = json.optJSONArray("items") ?: return emptyList()
         return (0 until items.length()).mapNotNull { index ->
             val item = items.optJSONObject(index) ?: return@mapNotNull null
-            val track = item.optJSONObject("track") ?: return@mapNotNull null
-            val name = track.optString("name")
-            val artists = track.optJSONArray("artists")
-            val artist = artists?.optJSONObject(0)?.optString("name").orEmpty()
+            val name = item.optString("name")
+            val genre = item.optJSONArray("genres")?.optString(0).orEmpty()
+            val imageUrl = item.optJSONArray("images")?.optJSONObject(0)?.optString("url")
             if (name.isBlank()) return@mapNotNull null
-            if (artist.isBlank()) name else "$name - $artist"
-        }.distinct()
+            SpotifyMediaItem(
+                title = name,
+                subtitle = genre.ifBlank { null },
+                imageUrl = imageUrl?.takeIf { it.isNotBlank() }
+            )
+        }
+    }
+
+    private fun parsePlaylists(json: JSONObject): List<SpotifyMediaItem> {
+        val items = json.optJSONArray("items") ?: return emptyList()
+        return (0 until items.length()).mapNotNull { index ->
+            val item = items.optJSONObject(index) ?: return@mapNotNull null
+            val name = item.optString("name")
+            val owner = item.optJSONObject("owner")?.optString("display_name").orEmpty()
+            val imageUrl = item.optJSONArray("images")?.optJSONObject(0)?.optString("url")
+            if (name.isBlank()) return@mapNotNull null
+            SpotifyMediaItem(
+                title = name,
+                subtitle = owner.ifBlank { null },
+                imageUrl = imageUrl?.takeIf { it.isNotBlank() }
+            )
+        }
+    }
+
+    private fun parseRecentlyPlayed(json: JSONObject): List<SpotifyMediaItem> {
+        val items = json.optJSONArray("items") ?: return emptyList()
+        val seenUris = mutableSetOf<String>()
+        val list = mutableListOf<SpotifyMediaItem>()
+
+        for (index in 0 until items.length()) {
+            val item = items.optJSONObject(index) ?: continue
+            val track = item.optJSONObject("track") ?: continue
+            val uri = track.optString("uri")
+            if (uri.isNotBlank() && !seenUris.add(uri)) {
+                continue
+            }
+
+            val name = track.optString("name")
+            val artist = track.optJSONArray("artists")?.optJSONObject(0)?.optString("name").orEmpty()
+            val imageUrl = track.optJSONObject("album")
+                ?.optJSONArray("images")
+                ?.optJSONObject(0)
+                ?.optString("url")
+            if (name.isBlank()) continue
+
+            list.add(
+                SpotifyMediaItem(
+                    title = name,
+                    subtitle = artist.ifBlank { null },
+                    imageUrl = imageUrl?.takeIf { it.isNotBlank() }
+                )
+            )
+        }
+
+        return list
     }
 
     private fun getJson(accessToken: String, endpoint: String): JSONObject {

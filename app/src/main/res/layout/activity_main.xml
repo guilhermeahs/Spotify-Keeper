@@ -2,116 +2,242 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_main_gradient"
+    android:fillViewport="true">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="20dp">
+        android:padding="16dp">
 
-        <TextView
-            android:id="@+id/titleText"
+        <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Spotify Keeper"
-            android:textAppearance="@style/TextAppearance.Material3.HeadlineMedium"
-            android:textStyle="bold" />
+            app:cardBackgroundColor="#1C1630"
+            app:cardCornerRadius="20dp"
+            app:strokeColor="#4E3B81"
+            app:strokeWidth="1dp">
 
-        <TextView
-            android:id="@+id/subtitleText"
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Spotify Keeper"
+                    android:textColor="#FFFFFF"
+                    android:textSize="34sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="Controle sua reproducao e acompanhe seus tops sem sair do app."
+                    android:textColor="#D8D0F1"
+                    android:textSize="15sp" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Starter Android para o Codex integrar com o Spotify App Remote."
-            android:textAppearance="@style/TextAppearance.Material3.BodyMedium" />
+            android:layout_marginTop="12dp"
+            app:cardBackgroundColor="#1F2737"
+            app:cardCornerRadius="20dp"
+            app:strokeColor="#445A84"
+            app:strokeWidth="1dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:padding="14dp">
+
+                <ImageView
+                    android:id="@+id/nowPlayingImage"
+                    android:layout_width="78dp"
+                    android:layout_height="78dp"
+                    android:background="@drawable/bg_cover_frame"
+                    android:padding="6dp"
+                    android:scaleType="centerCrop"
+                    android:src="@drawable/ic_music_placeholder" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Tocando agora"
+                        android:textColor="#AFC5F7"
+                        android:textSize="12sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/nowPlayingTitle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:text="Nada tocando agora"
+                        android:textColor="#FFFFFF"
+                        android:textSize="18sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/nowPlayingArtist"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:text="Conecte no Spotify e escolha uma musica."
+                        android:textColor="#C9D5F0"
+                        android:textSize="14sp" />
+                </LinearLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
 
         <com.google.android.material.textfield.TextInputLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:hint="URI/Link Spotify (opcional)">
+            android:layout_marginTop="14dp"
+            android:hint="URI/Link Spotify (opcional)"
+            app:boxBackgroundColor="#2D2144"
+            app:boxBackgroundMode="filled"
+            app:boxCornerRadiusBottomEnd="14dp"
+            app:boxCornerRadiusBottomStart="14dp"
+            app:boxCornerRadiusTopEnd="14dp"
+            app:boxCornerRadiusTopStart="14dp"
+            app:hintTextColor="#BDAEE6">
 
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/playlistInput"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:inputType="text"
-                android:text="" />
+                android:textColor="#FFFFFF"
+                android:textColorHint="#D1C6F0" />
         </com.google.android.material.textfield.TextInputLayout>
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/connectButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="Conectar" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/playButton"
-            style="@style/Widget.Material3.Button.OutlinedButton"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:text="Dar play / retomar atual" />
+            android:orientation="horizontal">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/pauseButton"
-            style="@style/Widget.Material3.Button.OutlinedButton"
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/connectButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Conectar" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/playButton"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:text="Play/Retomar" />
+        </LinearLayout>
+
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="Pausar" />
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/resumeButton"
-            style="@style/Widget.Material3.Button.OutlinedButton"
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/pauseButton"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Pausar" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/resumeButton"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:text="Retomar" />
+        </LinearLayout>
+
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="Retomar" />
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/checkStatusButton"
-            style="@style/Widget.Material3.Button.OutlinedButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="Checar status" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/checkStatusButton"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Checar status" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/topStatsButton"
-            style="@style/Widget.Material3.Button.OutlinedButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="Ver tops (musicas/artistas/playlists)" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/topStatsButton"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:text="Ver tops" />
+        </LinearLayout>
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/updateButton"
-            style="@style/Widget.Material3.Button.OutlinedButton"
+            style="@style/Widget.Material3.Button.TonalButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="Atualizar app" />
+            android:layout_marginTop="8dp"
+            android:text="Buscar atualizacao" />
+
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:layout_marginBottom="14dp"
+            app:cardBackgroundColor="#122638"
+            app:cardCornerRadius="16dp"
+            app:strokeColor="#2B5C80"
+            app:strokeWidth="1dp">
+
+            <TextView
+                android:id="@+id/statusText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:padding="14dp"
+                android:text="Status:\nAguardando"
+                android:textColor="#FFFFFF"
+                android:textIsSelectable="true" />
+        </com.google.android.material.card.MaterialCardView>
 
         <TextView
-            android:id="@+id/statusText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:background="#12202B"
-            android:padding="16dp"
-            android:text="Status: aguardando"
-            android:textColor="#FFFFFF"
-            android:textIsSelectable="true" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="Esse projeto compila sem a SDK do Spotify. O Codex deve completar a integração nativa depois."
-            android:textAppearance="@style/TextAppearance.Material3.BodySmall" />
+            android:layout_marginBottom="8dp"
+            android:text="Dica: deixe o Spotify aberto e autenticado para conectar mais rapido."
+            android:textColor="#C7BEDF"
+            android:textSize="12sp" />
 
     </LinearLayout>
 </ScrollView>

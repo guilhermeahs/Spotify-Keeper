@@ -3,6 +3,7 @@
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -11,6 +12,7 @@ import com.spotify.android.appremote.api.ConnectionParams
 import com.spotify.android.appremote.api.Connector
 import com.spotify.android.appremote.api.SpotifyAppRemote
 import com.spotify.protocol.client.Subscription
+import com.spotify.protocol.types.ImageUri
 import com.spotify.protocol.types.PlayerState
 
 data class PlaybackSnapshot(
@@ -22,9 +24,16 @@ data class PlaybackSnapshot(
     val message: String
 )
 
+data class NowPlayingVisual(
+    val title: String?,
+    val artist: String?,
+    val artwork: Bitmap?
+)
+
 class SpotifyController(
     private val context: Context,
-    private val onStatusChanged: (String) -> Unit
+    private val onStatusChanged: (String) -> Unit,
+    private val onNowPlayingChanged: (NowPlayingVisual) -> Unit = {}
 ) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -42,6 +51,9 @@ class SpotifyController(
     private var pauseRequestedByUser = false
     private var autoResumeInFlight = false
     private var lastAutoResumeAtMs: Long = 0L
+
+    private var lastImageUriRaw: String? = null
+    private var currentArtwork: Bitmap? = null
 
     private var spotifyAppRemote: SpotifyAppRemote? = null
     private var playerStateSubscription: Subscription<PlayerState>? = null
@@ -220,6 +232,11 @@ class SpotifyController(
         spotifyAppRemote = null
         connected = false
         connecting = false
+        trackName = null
+        artistName = null
+        currentArtwork = null
+        lastImageUriRaw = null
+        emitNowPlaying()
     }
 
     private fun subscribeToPlayerState(appRemote: SpotifyAppRemote) {
@@ -227,7 +244,7 @@ class SpotifyController(
         val subscription = appRemote.playerApi.subscribeToPlayerState()
         playerStateSubscription = subscription
         subscription.setEventCallback { state ->
-            applyPlayerState(state)
+            applyPlayerState(state, appRemote)
             maybeAutoResume(appRemote, state)
         }
         subscription.setErrorCallback { error ->
@@ -235,7 +252,7 @@ class SpotifyController(
         }
     }
 
-    private fun applyPlayerState(state: PlayerState) {
+    private fun applyPlayerState(state: PlayerState, appRemote: SpotifyAppRemote) {
         paused = state.isPaused
         playbackPositionMs = state.playbackPosition
         trackName = state.track?.name
@@ -243,6 +260,30 @@ class SpotifyController(
         state.track?.uri?.takeIf { it.isNotBlank() }?.let { uri ->
             lastUri = uri
         }
+
+        val currentImageUriRaw = state.track?.imageUri?.raw
+        if (currentImageUriRaw != lastImageUriRaw) {
+            lastImageUriRaw = currentImageUriRaw
+            fetchArtwork(appRemote, state.track?.imageUri)
+        }
+        emitNowPlaying()
+    }
+
+    private fun fetchArtwork(appRemote: SpotifyAppRemote, imageUri: ImageUri?) {
+        if (imageUri == null) {
+            currentArtwork = null
+            emitNowPlaying()
+            return
+        }
+
+        appRemote.imagesApi.getImage(imageUri)
+            .setResultCallback { bitmap ->
+                currentArtwork = bitmap
+                emitNowPlaying()
+            }
+            .setErrorCallback {
+                emitNowPlaying()
+            }
     }
 
     private fun maybeAutoResume(appRemote: SpotifyAppRemote, state: PlayerState) {
@@ -402,6 +443,18 @@ class SpotifyController(
     private fun emitStatus(message: String) {
         mainHandler.post {
             onStatusChanged(message)
+        }
+    }
+
+    private fun emitNowPlaying() {
+        mainHandler.post {
+            onNowPlayingChanged(
+                NowPlayingVisual(
+                    title = trackName,
+                    artist = artistName,
+                    artwork = currentArtwork
+                )
+            )
         }
     }
 

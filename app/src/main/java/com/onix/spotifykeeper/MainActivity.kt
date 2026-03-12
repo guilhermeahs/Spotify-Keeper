@@ -22,20 +22,29 @@ class MainActivity : AppCompatActivity() {
 
     private var webApiAccessToken: String? = null
     private var pendingTopRequest = false
+    private var latestStatus: String = "Projeto iniciado. Conecte ao Spotify."
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        spotifyController = SpotifyController(this) { status ->
-            renderStatus(status)
-        }
+        spotifyController = SpotifyController(
+            this,
+            onStatusChanged = { status ->
+                latestStatus = status
+                renderStatus(status)
+            },
+            onNowPlayingChanged = { nowPlaying ->
+                renderNowPlaying(nowPlaying)
+            }
+        )
         appUpdater = AppUpdater(this)
         spotifyInsightsService = SpotifyInsightsService()
 
         bindActions()
-        renderStatus("Projeto iniciado. Conecte ao Spotify.")
+        renderNowPlaying(NowPlayingVisual(title = null, artist = null, artwork = null))
+        renderStatus(latestStatus)
         checkForUpdates(silent = true)
     }
 
@@ -120,6 +129,25 @@ class MainActivity : AppCompatActivity() {
         binding.statusText.text = "Status:\n$text"
     }
 
+    private fun renderNowPlaying(visual: NowPlayingVisual) {
+        val title = visual.title?.trim().orEmpty()
+        val artist = visual.artist?.trim().orEmpty()
+
+        if (title.isBlank()) {
+            binding.nowPlayingTitle.text = "Nada tocando agora"
+            binding.nowPlayingArtist.text = "Conecte no Spotify e escolha uma musica."
+            binding.nowPlayingImage.setImageResource(R.drawable.ic_music_placeholder)
+            return
+        }
+
+        binding.nowPlayingTitle.text = title
+        binding.nowPlayingArtist.text = if (artist.isBlank()) "Artista indisponivel" else artist
+
+        if (visual.artwork != null) {
+            binding.nowPlayingImage.setImageBitmap(visual.artwork)
+        }
+    }
+
     private fun checkForUpdates(silent: Boolean) {
         appUpdater.checkForUpdate { result ->
             result.onSuccess { update ->
@@ -191,22 +219,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun openTopStatsScreen(summary: SpotifyTopSummary) {
         val intent = Intent(this, TopStatsActivity::class.java).apply {
-            putStringArrayListExtra(
-                TopStatsActivity.EXTRA_TOP_TRACKS,
-                ArrayList(summary.topTracks)
-            )
-            putStringArrayListExtra(
-                TopStatsActivity.EXTRA_TOP_ARTISTS,
-                ArrayList(summary.topArtists)
-            )
-            putStringArrayListExtra(
-                TopStatsActivity.EXTRA_PLAYLISTS,
-                ArrayList(summary.playlists)
-            )
-            putStringArrayListExtra(
-                TopStatsActivity.EXTRA_RECENT,
-                ArrayList(summary.recentlyPlayed)
-            )
+            putExtra(TopStatsActivity.EXTRA_SUMMARY_JSON, summary.toJsonString())
         }
         startActivity(intent)
     }

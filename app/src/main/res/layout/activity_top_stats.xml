@@ -69,14 +69,12 @@
                         android:textSize="16sp"
                         android:textStyle="bold" />
 
-                    <TextView
-                        android:id="@+id/tracksContent"
+                    <LinearLayout
+                        android:id="@+id/tracksContainer"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
-                        android:lineSpacingExtra="3dp"
-                        android:textColor="#DDD4FF"
-                        android:textSize="14sp" />
+                        android:layout_marginTop="8dp"
+                        android:orientation="vertical" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -103,14 +101,12 @@
                         android:textSize="16sp"
                         android:textStyle="bold" />
 
-                    <TextView
-                        android:id="@+id/artistsContent"
+                    <LinearLayout
+                        android:id="@+id/artistsContainer"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
-                        android:lineSpacingExtra="3dp"
-                        android:textColor="#DAE6FF"
-                        android:textSize="14sp" />
+                        android:layout_marginTop="8dp"
+                        android:orientation="vertical" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -137,14 +133,12 @@
                         android:textSize="16sp"
                         android:textStyle="bold" />
 
-                    <TextView
-                        android:id="@+id/playlistsContent"
+                    <LinearLayout
+                        android:id="@+id/playlistsContainer"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
-                        android:lineSpacingExtra="3dp"
-                        android:textColor="#D2F5EE"
-                        android:textSize="14sp" />
+                        android:layout_marginTop="8dp"
+                        android:orientation="vertical" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -172,14 +166,12 @@
                         android:textSize="16sp"
                         android:textStyle="bold" />
 
-                    <TextView
-                        android:id="@+id/recentContent"
+                    <LinearLayout
+                        android:id="@+id/recentContainer"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
-                        android:lineSpacingExtra="3dp"
-                        android:textColor="#FFE8CF"
-                        android:textSize="14sp" />
+                        android:layout_marginTop="8dp"
+                        android:orientation="vertical" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
         </LinearLayout>
