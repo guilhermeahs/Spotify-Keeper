@@ -1,6 +1,7 @@
 ﻿package com.onix.spotifykeeper
 
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
@@ -70,6 +71,7 @@ class SpotifyController(
             disconnect()
         }
 
+        openSpotifyApp()
         connecting = true
         connectStartedAtMs = SystemClock.elapsedRealtime()
         scheduleConnectTimeout()
@@ -362,6 +364,7 @@ class SpotifyController(
     private fun describeConnectionError(error: Throwable): String {
         val message = error.message.orEmpty()
         return if (message.contains("Explicit user authorization is required", ignoreCase = true)) {
+            openSpotifyApp()
             "Falha ao conectar: autorizacao pendente. No Spotify Developer Dashboard, confirme redirect URI \"spotifykeeper://callback\" e configure Android package \"com.onix.spotifykeeper\" com SHA1 da assinatura do APK. Depois toque em Conectar novamente."
         } else {
             describeError("Falha ao conectar", error)
@@ -377,7 +380,8 @@ class SpotifyController(
             connecting = false
             connected = false
             spotifyAppRemote = null
-            emitStatus("Tempo limite na conexao. Abra o Spotify (logado), volte ao app e toque em Conectar novamente.")
+            openSpotifyApp()
+            emitStatus("Tempo limite na conexao. Abrimos o Spotify para autorizar. Volte ao app e toque em Conectar novamente.")
         }
         mainHandler.postDelayed(connectTimeoutRunnable!!, CONNECT_TIMEOUT_MS)
     }
@@ -385,6 +389,14 @@ class SpotifyController(
     private fun clearConnectTimeout() {
         connectTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
         connectTimeoutRunnable = null
+    }
+
+    private fun openSpotifyApp() {
+        val launchIntent = context.packageManager.getLaunchIntentForPackage(SPOTIFY_PACKAGE_NAME) ?: return
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        mainHandler.post {
+            runCatching { context.startActivity(launchIntent) }
+        }
     }
 
     private fun emitStatus(message: String) {

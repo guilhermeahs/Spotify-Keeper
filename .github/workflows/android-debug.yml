@@ -8,7 +8,7 @@ on:
       - master
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -41,7 +41,7 @@ jobs:
           gradle-version: "8.7"
 
       - name: Build debug APK
-        run: gradle :app:assembleDebug --stacktrace
+        run: gradle -PappVersionCode=${{ github.run_number }} -PappVersionName=0.1.${{ github.run_number }} :app:assembleDebug --stacktrace
 
       - name: Export APK certificate fingerprint
         run: |
@@ -64,3 +64,12 @@ jobs:
           name: app-debug-signature
           path: apk-signature.txt
           if-no-files-found: error
+
+      - name: Publish debug release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.1.${{ github.run_number }}
+          name: Spotify Keeper build #${{ github.run_number }}
+          files: |
+            app/build/outputs/apk/debug/app-debug.apk
+            apk-signature.txt
