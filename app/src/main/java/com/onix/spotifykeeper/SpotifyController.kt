@@ -190,14 +190,15 @@ class SpotifyController(
 
     private fun subscribeToPlayerState(appRemote: SpotifyAppRemote) {
         playerStateSubscription?.cancel()
-        playerStateSubscription = appRemote.playerApi.subscribeToPlayerState()
-            .setEventCallback { state ->
-                applyPlayerState(state)
-                maybeAutoResume(appRemote, state)
-            }
-            .setErrorCallback { error ->
-                emitStatus(describeError("Erro ao ler estado do player", error))
-            }
+        val subscription = appRemote.playerApi.subscribeToPlayerState()
+        playerStateSubscription = subscription
+        subscription.setEventCallback { state ->
+            applyPlayerState(state)
+            maybeAutoResume(appRemote, state)
+        }
+        subscription.setErrorCallback { error ->
+            emitStatus(describeError("Erro ao ler estado do player", error))
+        }
     }
 
     private fun applyPlayerState(state: PlayerState) {
@@ -273,7 +274,7 @@ class SpotifyController(
             return value
         }
 
-        val playlistRegex = Regex("""https?://open\\.spotify\\.com/playlist/([a-zA-Z0-9]+)""")
+        val playlistRegex = Regex("""https?://open\.spotify\.com/playlist/([a-zA-Z0-9]+)""")
         val match = playlistRegex.find(value) ?: return null
         val playlistId = match.groupValues.getOrNull(1).orEmpty()
         return if (playlistId.isBlank()) null else "spotify:playlist:$playlistId"
