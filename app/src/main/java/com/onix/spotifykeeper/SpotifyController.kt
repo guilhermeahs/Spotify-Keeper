@@ -1,4 +1,4 @@
-﻿package com.onix.spotifykeeper
+package com.onix.spotifykeeper
 
 import android.content.Context
 import android.content.Intent
@@ -32,12 +32,12 @@ data class NowPlayingVisual(
 )
 
 class SpotifyController(
-    private val context: Context,
-    private val onStatusChanged: (String) -> Unit,
-    private val onNowPlayingChanged: (NowPlayingVisual) -> Unit = {}
+    private val context: Context
 ) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var onStatusChanged: (String) -> Unit = {}
+    private var onNowPlayingChanged: (NowPlayingVisual) -> Unit = {}
 
     private var connected = false
     private var connecting = false
@@ -60,6 +60,20 @@ class SpotifyController(
     private var spotifyAppRemote: SpotifyAppRemote? = null
     private var playerStateSubscription: Subscription<PlayerState>? = null
     private var connectTimeoutRunnable: Runnable? = null
+
+    fun setCallbacks(
+        onStatusChanged: (String) -> Unit,
+        onNowPlayingChanged: (NowPlayingVisual) -> Unit
+    ) {
+        this.onStatusChanged = onStatusChanged
+        this.onNowPlayingChanged = onNowPlayingChanged
+        emitNowPlaying()
+    }
+
+    fun clearCallbacks() {
+        onStatusChanged = {}
+        onNowPlayingChanged = {}
+    }
 
     fun connect(force: Boolean = false): String {
         if (!isClientConfigured()) {

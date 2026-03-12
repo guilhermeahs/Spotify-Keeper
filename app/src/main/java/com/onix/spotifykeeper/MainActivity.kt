@@ -1,10 +1,11 @@
-﻿package com.onix.spotifykeeper
+package com.onix.spotifykeeper
 
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import com.onix.spotifykeeper.databinding.ActivityMainBinding
 import com.spotify.sdk.android.auth.AuthorizationClient
 import com.spotify.sdk.android.auth.AuthorizationRequest
@@ -30,16 +31,7 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        spotifyController = SpotifyController(
-            this,
-            onStatusChanged = { status ->
-                latestStatus = status
-                renderStatus(status)
-            },
-            onNowPlayingChanged = { nowPlaying ->
-                renderNowPlaying(nowPlaying)
-            }
-        )
+        spotifyController = SpotifyControllerProvider.get(applicationContext)
         appUpdater = AppUpdater(this)
         spotifyInsightsService = SpotifyInsightsService()
 
@@ -92,6 +84,14 @@ class MainActivity : AppCompatActivity() {
         binding.updateButton.setOnClickListener {
             checkForUpdates(silent = false)
         }
+
+        binding.keepAliveStartButton.setOnClickListener {
+            startKeepAliveMode()
+        }
+
+        binding.keepAliveStopButton.setOnClickListener {
+            stopKeepAliveMode()
+        }
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -125,11 +125,26 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        if (::spotifyController.isInitialized) {
-            spotifyController.disconnect()
-        }
         ioExecutor.shutdownNow()
         super.onDestroy()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        spotifyController.setCallbacks(
+            onStatusChanged = { status ->
+                latestStatus = status
+                renderStatus(status)
+            },
+            onNowPlayingChanged = { nowPlaying ->
+                renderNowPlaying(nowPlaying)
+            }
+        )
+    }
+
+    override fun onStop() {
+        spotifyController.clearCallbacks()
+        super.onStop()
     }
 
     private fun renderStatus(text: String) {
@@ -237,6 +252,22 @@ class MainActivity : AppCompatActivity() {
             putExtra(TopStatsActivity.EXTRA_SUMMARY_JSON, summary.toJsonString())
         }
         startActivity(intent)
+    }
+
+    private fun startKeepAliveMode() {
+        val intent = Intent(this, SpotifyKeepAliveService::class.java).apply {
+            action = SpotifyKeepAliveService.ACTION_START
+        }
+        ContextCompat.startForegroundService(this, intent)
+        renderStatus("Modo sempre ligado ativado. O app vai manter conexao em background.")
+    }
+
+    private fun stopKeepAliveMode() {
+        val intent = Intent(this, SpotifyKeepAliveService::class.java).apply {
+            action = SpotifyKeepAliveService.ACTION_STOP
+        }
+        startService(intent)
+        renderStatus("Modo sempre ligado desativado.")
     }
 
     private companion object {
