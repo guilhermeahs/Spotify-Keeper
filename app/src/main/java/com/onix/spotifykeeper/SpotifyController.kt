@@ -83,7 +83,7 @@ class SpotifyController(
                     connecting = false
                     connected = false
                     spotifyAppRemote = null
-                    emitStatus(describeError("Falha ao conectar", error))
+                    emitStatus(describeConnectionError(error))
                 }
             }
         )
@@ -304,6 +304,15 @@ class SpotifyController(
     private fun describeError(prefix: String, error: Throwable): String {
         val details = error.message?.takeIf { it.isNotBlank() } ?: error.javaClass.simpleName
         return "$prefix: $details"
+    }
+
+    private fun describeConnectionError(error: Throwable): String {
+        val message = error.message.orEmpty()
+        return if (message.contains("Explicit user authorization is required", ignoreCase = true)) {
+            "Falha ao conectar: autorizacao pendente. No Spotify Developer Dashboard, confirme redirect URI \"spotifykeeper://callback\" e configure Android package \"com.onix.spotifykeeper\" com SHA1 da assinatura do APK. Depois toque em Conectar novamente."
+        } else {
+            describeError("Falha ao conectar", error)
+        }
     }
 
     private fun emitStatus(message: String) {

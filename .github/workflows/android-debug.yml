@@ -43,9 +43,24 @@ jobs:
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
 
+      - name: Export APK certificate fingerprint
+        run: |
+          keytool -printcert -jarfile app/build/outputs/apk/debug/app-debug.apk | tee apk-signature.txt
+          echo "### APK Signature" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          cat apk-signature.txt >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: Upload signature artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-signature
+          path: apk-signature.txt
           if-no-files-found: error
