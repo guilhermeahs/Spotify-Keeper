@@ -206,7 +206,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (showLoadingStatus) {
-            renderStatus("Carregando tops, minutos e resumo por dia...")
+            renderStatus("Atualizando seus dados do Spotify...")
         }
         ioExecutor.execute {
             val result = runCatching {
@@ -218,8 +218,6 @@ class MainActivity : AppCompatActivity() {
                     cachedTopSummary = summary
                     if (openOnSuccess) {
                         openTopStatsScreen(summary)
-                    } else {
-                        renderStatus("Tops atualizados em segundo plano.")
                     }
                 }.onFailure { error ->
                     if (error.message == "TOKEN_EXPIRED") {
@@ -276,7 +274,9 @@ class MainActivity : AppCompatActivity() {
             "user-top-read",
             "user-read-recently-played",
             "playlist-read-private",
-            "playlist-read-collaborative"
+            "playlist-read-collaborative",
+            "user-library-read",
+            "user-follow-read"
         )
     }
 }

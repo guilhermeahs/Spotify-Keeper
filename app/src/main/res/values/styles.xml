@@ -1,0 +1,11 @@
+<resources>
+    <style name="ShapeAppearance.SpotifyKeeper.MediumImage" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">14dp</item>
+    </style>
+
+    <style name="ShapeAppearance.SpotifyKeeper.CircleImage" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">50%</item>
+    </style>
+</resources>

@@ -20,6 +20,7 @@ data class SpotifyDailySummary(
     val dateLabel: String,
     val minutesHeard: Int,
     val playsCount: Int,
+    val uniqueTracksCount: Int,
     val topTracks: List<SpotifyMediaItem>
 )
 
@@ -30,7 +31,11 @@ data class SpotifyTopSummary(
     val recentlyPlayed: List<SpotifyMediaItem>,
     val dailySummaries: List<SpotifyDailySummary>,
     val recentWindowMinutes: Int,
-    val recentWindowPlays: Int
+    val recentWindowPlays: Int,
+    val recentWindowUniqueTracks: Int,
+    val likedSongsCount: Int,
+    val followedArtistsCount: Int,
+    val playlistsCount: Int
 ) {
 
     fun toJsonString(): String {
@@ -42,6 +47,10 @@ data class SpotifyTopSummary(
             put("dailySummaries", toDailyJsonArray(dailySummaries))
             put("recentWindowMinutes", recentWindowMinutes)
             put("recentWindowPlays", recentWindowPlays)
+            put("recentWindowUniqueTracks", recentWindowUniqueTracks)
+            put("likedSongsCount", likedSongsCount)
+            put("followedArtistsCount", followedArtistsCount)
+            put("playlistsCount", playlistsCount)
         }.toString()
     }
 
@@ -68,6 +77,7 @@ data class SpotifyTopSummary(
                         put("dateLabel", day.dateLabel)
                         put("minutesHeard", day.minutesHeard)
                         put("playsCount", day.playsCount)
+                        put("uniqueTracksCount", day.uniqueTracksCount)
                         put("topTracks", toMediaJsonArray(day.topTracks))
                     }
                 )
@@ -85,7 +95,11 @@ data class SpotifyTopSummary(
                 recentlyPlayed = parseMediaArray(root.optJSONArray("recentlyPlayed")),
                 dailySummaries = parseDailyArray(root.optJSONArray("dailySummaries")),
                 recentWindowMinutes = root.optInt("recentWindowMinutes", 0).coerceAtLeast(0),
-                recentWindowPlays = root.optInt("recentWindowPlays", 0).coerceAtLeast(0)
+                recentWindowPlays = root.optInt("recentWindowPlays", 0).coerceAtLeast(0),
+                recentWindowUniqueTracks = root.optInt("recentWindowUniqueTracks", 0).coerceAtLeast(0),
+                likedSongsCount = root.optInt("likedSongsCount", 0).coerceAtLeast(0),
+                followedArtistsCount = root.optInt("followedArtistsCount", 0).coerceAtLeast(0),
+                playlistsCount = root.optInt("playlistsCount", 0).coerceAtLeast(0)
             )
         }
 
@@ -115,6 +129,7 @@ data class SpotifyTopSummary(
                     dateLabel = item.optString("dateLabel").ifBlank { dateIso },
                     minutesHeard = item.optInt("minutesHeard", 0).coerceAtLeast(0),
                     playsCount = item.optInt("playsCount", 0).coerceAtLeast(0),
+                    uniqueTracksCount = item.optInt("uniqueTracksCount", 0).coerceAtLeast(0),
                     topTracks = parseMediaArray(item.optJSONArray("topTracks"))
                 )
             }
@@ -129,9 +144,13 @@ class SpotifyInsightsService {
         val topArtistsJson = getJson(accessToken, "https://api.spotify.com/v1/me/top/artists?limit=10&time_range=medium_term")
         val playlistsJson = getJson(accessToken, "https://api.spotify.com/v1/me/playlists?limit=10")
 
-        val recentEntries = fetchRecentEntries(accessToken, maxPages = 4, maxItems = 200)
-        val recentUniqueTracks = buildRecentUniqueTracks(recentEntries, limit = 20)
-        val dailySummaries = buildDailySummaries(recentEntries, maxDays = 7)
+        val recentEntries = fetchRecentEntries(accessToken, maxPages = 10, maxItems = 500)
+        val recentUniqueTracks = buildRecentUniqueTracks(recentEntries, limit = 30)
+        val dailySummaries = buildDailySummaries(recentEntries, maxDays = 30)
+
+        val likedSongsCount = fetchSimpleTotal(accessToken, "https://api.spotify.com/v1/me/tracks?limit=1")
+        val followedArtistsCount = fetchFollowedArtistsTotal(accessToken)
+        val playlistsCount = playlistsJson.optInt("total", 0).coerceAtLeast(0)
 
         return SpotifyTopSummary(
             topTracks = parseTopTracks(topTracksJson),
@@ -140,7 +159,11 @@ class SpotifyInsightsService {
             recentlyPlayed = recentUniqueTracks,
             dailySummaries = dailySummaries,
             recentWindowMinutes = calculateWindowMinutes(recentEntries),
-            recentWindowPlays = recentEntries.size
+            recentWindowPlays = recentEntries.size,
+            recentWindowUniqueTracks = recentEntries.map { it.trackKey }.distinct().size,
+            likedSongsCount = likedSongsCount,
+            followedArtistsCount = followedArtistsCount,
+            playlistsCount = playlistsCount
         )
     }
 
@@ -218,8 +241,7 @@ class SpotifyInsightsService {
             page += 1
         }
 
-        return entries
-            .sortedByDescending { it.playedAt }
+        return entries.sortedByDescending { it.playedAt }
     }
 
     private fun parseRecentEntriesPage(json: JSONObject): List<RecentEntry> {
@@ -297,21 +319,36 @@ class SpotifyInsightsService {
             .map { (date, dayEntries) ->
                 val totalMs = dayEntries.sumOf { it.durationMs }
                 val minutes = toRoundedMinutes(totalMs)
+                val uniqueTracksCount = dayEntries.map { it.trackKey }.distinct().size
                 val rankedTracks = dayEntries
                     .groupBy { it.trackKey }
                     .values
                     .map { sameTrackEntries ->
+                        val base = sameTrackEntries.first().media
+                        val plays = sameTrackEntries.size
+                        val duration = sameTrackEntries.sumOf { it.durationMs }
+                        val minutesForTrack = toRoundedMinutes(duration)
+                        val subtitleParts = mutableListOf<String>()
+                        if (!base.subtitle.isNullOrBlank()) {
+                            subtitleParts += base.subtitle
+                        }
+                        subtitleParts += "${plays}x"
+                        subtitleParts += "${minutesForTrack} min"
                         TrackRanking(
-                            media = sameTrackEntries.first().media,
-                            plays = sameTrackEntries.size,
-                            durationMs = sameTrackEntries.sumOf { it.durationMs }
+                            media = SpotifyMediaItem(
+                                title = base.title,
+                                subtitle = subtitleParts.joinToString(" • "),
+                                imageUrl = base.imageUrl
+                            ),
+                            plays = plays,
+                            durationMs = duration
                         )
                     }
                     .sortedWith(
                         compareByDescending<TrackRanking> { it.plays }
                             .thenByDescending { it.durationMs }
                     )
-                    .take(3)
+                    .take(5)
                     .map { it.media }
 
                 SpotifyDailySummary(
@@ -319,9 +356,23 @@ class SpotifyInsightsService {
                     dateLabel = formatter.format(date),
                     minutesHeard = minutes,
                     playsCount = dayEntries.size,
+                    uniqueTracksCount = uniqueTracksCount,
                     topTracks = rankedTracks
                 )
             }
+    }
+
+    private fun fetchSimpleTotal(accessToken: String, endpoint: String): Int {
+        return runCatching {
+            getJson(accessToken, endpoint).optInt("total", 0).coerceAtLeast(0)
+        }.getOrDefault(0)
+    }
+
+    private fun fetchFollowedArtistsTotal(accessToken: String): Int {
+        return runCatching {
+            val json = getJson(accessToken, "https://api.spotify.com/v1/me/following?type=artist&limit=1")
+            json.optJSONObject("artists")?.optInt("total", 0)?.coerceAtLeast(0) ?: 0
+        }.getOrDefault(0)
     }
 
     private fun calculateWindowMinutes(entries: List<RecentEntry>): Int {
