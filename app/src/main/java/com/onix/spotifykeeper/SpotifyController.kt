@@ -30,6 +30,7 @@ class SpotifyController(
 
     private var connected = false
     private var connecting = false
+    private var connectStartedAtMs: Long = 0L
     private var paused = true
     private var lastUri: String? = null
     private var pendingPlayUri: String? = null
@@ -43,6 +44,7 @@ class SpotifyController(
 
     private var spotifyAppRemote: SpotifyAppRemote? = null
     private var playerStateSubscription: Subscription<PlayerState>? = null
+    private var connectTimeoutRunnable: Runnable? = null
 
     fun connect(force: Boolean = false): String {
         if (!isClientConfigured()) {
@@ -55,10 +57,22 @@ class SpotifyController(
             return "Ja conectado ao Spotify."
         }
         if (connecting) {
-            return "Conexao em andamento..."
+            val elapsed = SystemClock.elapsedRealtime() - connectStartedAtMs
+            if (elapsed <= CONNECT_TIMEOUT_MS) {
+                return "Conexao em andamento..."
+            }
+            connecting = false
+            clearConnectTimeout()
+            spotifyAppRemote = null
+            emitStatus("Conexao anterior ficou travada. Tentando reconectar...")
+        }
+        if (force) {
+            disconnect()
         }
 
         connecting = true
+        connectStartedAtMs = SystemClock.elapsedRealtime()
+        scheduleConnectTimeout()
         val connectionParams = ConnectionParams.Builder(BuildConfig.SPOTIFY_CLIENT_ID)
             .setRedirectUri(BuildConfig.SPOTIFY_REDIRECT_URI)
             .showAuthView(true)
@@ -69,6 +83,7 @@ class SpotifyController(
             connectionParams,
             object : Connector.ConnectionListener {
                 override fun onConnected(appRemote: SpotifyAppRemote) {
+                    clearConnectTimeout()
                     connecting = false
                     connected = true
                     spotifyAppRemote = appRemote
@@ -86,6 +101,7 @@ class SpotifyController(
                 }
 
                 override fun onFailure(error: Throwable) {
+                    clearConnectTimeout()
                     connecting = false
                     connected = false
                     spotifyAppRemote = null
@@ -192,6 +208,10 @@ class SpotifyController(
     }
 
     fun disconnect() {
+        clearConnectTimeout()
+        connectStartedAtMs = 0L
+        pendingPlayUri = null
+        pendingResumeCurrent = false
         playerStateSubscription?.cancel()
         playerStateSubscription = null
         spotifyAppRemote?.let { SpotifyAppRemote.disconnect(it) }
@@ -348,6 +368,25 @@ class SpotifyController(
         }
     }
 
+    private fun scheduleConnectTimeout() {
+        clearConnectTimeout()
+        connectTimeoutRunnable = Runnable {
+            if (!connecting) {
+                return@Runnable
+            }
+            connecting = false
+            connected = false
+            spotifyAppRemote = null
+            emitStatus("Tempo limite na conexao. Abra o Spotify (logado), volte ao app e toque em Conectar novamente.")
+        }
+        mainHandler.postDelayed(connectTimeoutRunnable!!, CONNECT_TIMEOUT_MS)
+    }
+
+    private fun clearConnectTimeout() {
+        connectTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
+        connectTimeoutRunnable = null
+    }
+
     private fun emitStatus(message: String) {
         mainHandler.post {
             onStatusChanged(message)
@@ -357,6 +396,7 @@ class SpotifyController(
     private companion object {
         const val SPOTIFY_PACKAGE_NAME = "com.spotify.music"
         const val AUTO_RESUME_DEBOUNCE_MS = 5_000L
+        const val CONNECT_TIMEOUT_MS = 20_000L
         const val DEFAULT_CLIENT_ID_PLACEHOLDER = "COLOQUE_SEU_CLIENT_ID_AQUI"
     }
 }
