@@ -7,6 +7,15 @@ android {
     namespace 'com.onix.spotifykeeper'
     compileSdk 34
 
+    signingConfigs {
+        debug {
+            storeFile file('keystore/spotifykeeper-debug.jks')
+            storePassword 'keeper123'
+            keyAlias 'spotifykeeperdebug'
+            keyPassword 'keeper123'
+        }
+    }
+
     defaultConfig {
         applicationId "com.onix.spotifykeeper"
         minSdk 26
@@ -24,6 +33,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
+
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
