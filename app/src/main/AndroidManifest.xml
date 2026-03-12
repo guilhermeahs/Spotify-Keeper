@@ -15,6 +15,10 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.SpotifyKeeperStarter">
         <activity
+            android:name=".TopStatsActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask">

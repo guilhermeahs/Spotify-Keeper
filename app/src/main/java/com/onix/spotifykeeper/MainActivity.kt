@@ -163,7 +163,7 @@ class MainActivity : AppCompatActivity() {
 
             runOnUiThread {
                 result.onSuccess { summary ->
-                    renderStatus(formatTopSummary(summary))
+                    openTopStatsScreen(summary)
                 }.onFailure { error ->
                     if (error.message == "TOKEN_EXPIRED") {
                         webApiAccessToken = null
@@ -189,46 +189,26 @@ class MainActivity : AppCompatActivity() {
         AuthorizationClient.openLoginActivity(this, REQUEST_CODE_SPOTIFY_AUTH, request)
     }
 
-    private fun formatTopSummary(summary: SpotifyTopSummary): String {
-        val tracks = if (summary.topTracks.isEmpty()) {
-            "Sem dados"
-        } else {
-            summary.topTracks.mapIndexed { index, item -> "${index + 1}. $item" }.joinToString("\n")
+    private fun openTopStatsScreen(summary: SpotifyTopSummary) {
+        val intent = Intent(this, TopStatsActivity::class.java).apply {
+            putStringArrayListExtra(
+                TopStatsActivity.EXTRA_TOP_TRACKS,
+                ArrayList(summary.topTracks)
+            )
+            putStringArrayListExtra(
+                TopStatsActivity.EXTRA_TOP_ARTISTS,
+                ArrayList(summary.topArtists)
+            )
+            putStringArrayListExtra(
+                TopStatsActivity.EXTRA_PLAYLISTS,
+                ArrayList(summary.playlists)
+            )
+            putStringArrayListExtra(
+                TopStatsActivity.EXTRA_RECENT,
+                ArrayList(summary.recentlyPlayed)
+            )
         }
-
-        val artists = if (summary.topArtists.isEmpty()) {
-            "Sem dados"
-        } else {
-            summary.topArtists.mapIndexed { index, item -> "${index + 1}. $item" }.joinToString("\n")
-        }
-
-        val playlists = if (summary.playlists.isEmpty()) {
-            "Sem dados"
-        } else {
-            summary.playlists.mapIndexed { index, item -> "${index + 1}. $item" }.joinToString("\n")
-        }
-
-        val recent = if (summary.recentlyPlayed.isEmpty()) {
-            "Sem dados"
-        } else {
-            summary.recentlyPlayed.mapIndexed { index, item -> "${index + 1}. $item" }.joinToString("\n")
-        }
-
-        return """
-            Seus Tops:
-
-            Top musicas:
-            $tracks
-
-            Top artistas:
-            $artists
-
-            Suas playlists:
-            $playlists
-
-            Musicas recentes (ultimas 20):
-            $recent
-        """.trimIndent()
+        startActivity(intent)
     }
 
     private companion object {
