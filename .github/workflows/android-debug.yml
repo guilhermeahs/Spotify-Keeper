@@ -45,7 +45,7 @@ jobs:
 
       - name: Export APK certificate fingerprint
         run: |
-          keytool -printcert -jarfile app/build/outputs/apk/debug/app-debug.apk | tee apk-signature.txt
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --print-certs app/build/outputs/apk/debug/app-debug.apk | tee apk-signature.txt
           echo "### APK Signature" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           cat apk-signature.txt >> $GITHUB_STEP_SUMMARY
