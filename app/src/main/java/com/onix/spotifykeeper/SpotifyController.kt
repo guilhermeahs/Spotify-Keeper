@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.util.LruCache
 import com.spotify.android.appremote.api.ConnectionParams
 import com.spotify.android.appremote.api.Connector
 import com.spotify.android.appremote.api.SpotifyAppRemote
@@ -54,6 +55,7 @@ class SpotifyController(
 
     private var lastImageUriRaw: String? = null
     private var currentArtwork: Bitmap? = null
+    private val artworkCache = object : LruCache<String, Bitmap>(32) {}
 
     private var spotifyAppRemote: SpotifyAppRemote? = null
     private var playerStateSubscription: Subscription<PlayerState>? = null
@@ -264,12 +266,21 @@ class SpotifyController(
         val currentImageUriRaw = state.track?.imageUri?.raw
         if (currentImageUriRaw != lastImageUriRaw) {
             lastImageUriRaw = currentImageUriRaw
-            fetchArtwork(appRemote, state.track?.imageUri)
+            if (currentImageUriRaw.isNullOrBlank()) {
+                currentArtwork = null
+            } else {
+                val cachedArtwork = artworkCache.get(currentImageUriRaw)
+                if (cachedArtwork != null) {
+                    currentArtwork = cachedArtwork
+                } else {
+                    fetchArtwork(appRemote, state.track?.imageUri, currentImageUriRaw)
+                }
+            }
         }
         emitNowPlaying()
     }
 
-    private fun fetchArtwork(appRemote: SpotifyAppRemote, imageUri: ImageUri?) {
+    private fun fetchArtwork(appRemote: SpotifyAppRemote, imageUri: ImageUri?, imageKey: String) {
         if (imageUri == null) {
             currentArtwork = null
             emitNowPlaying()
@@ -278,11 +289,14 @@ class SpotifyController(
 
         appRemote.imagesApi.getImage(imageUri)
             .setResultCallback { bitmap ->
-                currentArtwork = bitmap
-                emitNowPlaying()
+                artworkCache.put(imageKey, bitmap)
+                if (lastImageUriRaw == imageKey) {
+                    currentArtwork = bitmap
+                    emitNowPlaying()
+                }
             }
             .setErrorCallback {
-                emitNowPlaying()
+                // Keep previous artwork on failures to avoid UI flicker/loading effect.
             }
     }
 

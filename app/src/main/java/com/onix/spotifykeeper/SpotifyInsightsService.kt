@@ -4,6 +4,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import kotlin.math.roundToInt
 
 data class SpotifyMediaItem(
     val title: String,
@@ -11,23 +15,37 @@ data class SpotifyMediaItem(
     val imageUrl: String? = null
 )
 
+data class SpotifyDailySummary(
+    val dateIso: String,
+    val dateLabel: String,
+    val minutesHeard: Int,
+    val playsCount: Int,
+    val topTracks: List<SpotifyMediaItem>
+)
+
 data class SpotifyTopSummary(
     val topTracks: List<SpotifyMediaItem>,
     val topArtists: List<SpotifyMediaItem>,
     val playlists: List<SpotifyMediaItem>,
-    val recentlyPlayed: List<SpotifyMediaItem>
+    val recentlyPlayed: List<SpotifyMediaItem>,
+    val dailySummaries: List<SpotifyDailySummary>,
+    val recentWindowMinutes: Int,
+    val recentWindowPlays: Int
 ) {
 
     fun toJsonString(): String {
         return JSONObject().apply {
-            put("topTracks", toJsonArray(topTracks))
-            put("topArtists", toJsonArray(topArtists))
-            put("playlists", toJsonArray(playlists))
-            put("recentlyPlayed", toJsonArray(recentlyPlayed))
+            put("topTracks", toMediaJsonArray(topTracks))
+            put("topArtists", toMediaJsonArray(topArtists))
+            put("playlists", toMediaJsonArray(playlists))
+            put("recentlyPlayed", toMediaJsonArray(recentlyPlayed))
+            put("dailySummaries", toDailyJsonArray(dailySummaries))
+            put("recentWindowMinutes", recentWindowMinutes)
+            put("recentWindowPlays", recentWindowPlays)
         }.toString()
     }
 
-    private fun toJsonArray(items: List<SpotifyMediaItem>): JSONArray {
+    private fun toMediaJsonArray(items: List<SpotifyMediaItem>): JSONArray {
         return JSONArray().apply {
             items.forEach { item ->
                 put(
@@ -41,18 +59,37 @@ data class SpotifyTopSummary(
         }
     }
 
+    private fun toDailyJsonArray(items: List<SpotifyDailySummary>): JSONArray {
+        return JSONArray().apply {
+            items.forEach { day ->
+                put(
+                    JSONObject().apply {
+                        put("dateIso", day.dateIso)
+                        put("dateLabel", day.dateLabel)
+                        put("minutesHeard", day.minutesHeard)
+                        put("playsCount", day.playsCount)
+                        put("topTracks", toMediaJsonArray(day.topTracks))
+                    }
+                )
+            }
+        }
+    }
+
     companion object {
         fun fromJsonString(json: String): SpotifyTopSummary {
             val root = JSONObject(json)
             return SpotifyTopSummary(
-                topTracks = parseArray(root.optJSONArray("topTracks")),
-                topArtists = parseArray(root.optJSONArray("topArtists")),
-                playlists = parseArray(root.optJSONArray("playlists")),
-                recentlyPlayed = parseArray(root.optJSONArray("recentlyPlayed"))
+                topTracks = parseMediaArray(root.optJSONArray("topTracks")),
+                topArtists = parseMediaArray(root.optJSONArray("topArtists")),
+                playlists = parseMediaArray(root.optJSONArray("playlists")),
+                recentlyPlayed = parseMediaArray(root.optJSONArray("recentlyPlayed")),
+                dailySummaries = parseDailyArray(root.optJSONArray("dailySummaries")),
+                recentWindowMinutes = root.optInt("recentWindowMinutes", 0).coerceAtLeast(0),
+                recentWindowPlays = root.optInt("recentWindowPlays", 0).coerceAtLeast(0)
             )
         }
 
-        private fun parseArray(array: JSONArray?): List<SpotifyMediaItem> {
+        private fun parseMediaArray(array: JSONArray?): List<SpotifyMediaItem> {
             if (array == null) return emptyList()
             return (0 until array.length()).mapNotNull { index ->
                 val item = array.optJSONObject(index) ?: return@mapNotNull null
@@ -65,6 +102,23 @@ data class SpotifyTopSummary(
                 )
             }
         }
+
+        private fun parseDailyArray(array: JSONArray?): List<SpotifyDailySummary> {
+            if (array == null) return emptyList()
+            return (0 until array.length()).mapNotNull { index ->
+                val item = array.optJSONObject(index) ?: return@mapNotNull null
+                val dateIso = item.optString("dateIso")
+                if (dateIso.isBlank()) return@mapNotNull null
+
+                SpotifyDailySummary(
+                    dateIso = dateIso,
+                    dateLabel = item.optString("dateLabel").ifBlank { dateIso },
+                    minutesHeard = item.optInt("minutesHeard", 0).coerceAtLeast(0),
+                    playsCount = item.optInt("playsCount", 0).coerceAtLeast(0),
+                    topTracks = parseMediaArray(item.optJSONArray("topTracks"))
+                )
+            }
+        }
     }
 }
 
@@ -74,13 +128,19 @@ class SpotifyInsightsService {
         val topTracksJson = getJson(accessToken, "https://api.spotify.com/v1/me/top/tracks?limit=10&time_range=medium_term")
         val topArtistsJson = getJson(accessToken, "https://api.spotify.com/v1/me/top/artists?limit=10&time_range=medium_term")
         val playlistsJson = getJson(accessToken, "https://api.spotify.com/v1/me/playlists?limit=10")
-        val recentJson = getJson(accessToken, "https://api.spotify.com/v1/me/player/recently-played?limit=20")
+
+        val recentEntries = fetchRecentEntries(accessToken, maxPages = 4, maxItems = 200)
+        val recentUniqueTracks = buildRecentUniqueTracks(recentEntries, limit = 20)
+        val dailySummaries = buildDailySummaries(recentEntries, maxDays = 7)
 
         return SpotifyTopSummary(
             topTracks = parseTopTracks(topTracksJson),
             topArtists = parseTopArtists(topArtistsJson),
             playlists = parsePlaylists(playlistsJson),
-            recentlyPlayed = parseRecentlyPlayed(recentJson)
+            recentlyPlayed = recentUniqueTracks,
+            dailySummaries = dailySummaries,
+            recentWindowMinutes = calculateWindowMinutes(recentEntries),
+            recentWindowPlays = recentEntries.size
         )
     }
 
@@ -135,37 +195,143 @@ class SpotifyInsightsService {
         }
     }
 
-    private fun parseRecentlyPlayed(json: JSONObject): List<SpotifyMediaItem> {
+    private fun fetchRecentEntries(accessToken: String, maxPages: Int, maxItems: Int): List<RecentEntry> {
+        var endpoint: String? = "https://api.spotify.com/v1/me/player/recently-played?limit=50"
+        val entries = mutableListOf<RecentEntry>()
+        val visitedUrls = mutableSetOf<String>()
+        var page = 0
+
+        while (!endpoint.isNullOrBlank() && page < maxPages && entries.size < maxItems) {
+            if (!visitedUrls.add(endpoint)) {
+                break
+            }
+
+            val json = getJson(accessToken, endpoint)
+            val parsed = parseRecentEntriesPage(json)
+            if (parsed.isEmpty()) {
+                break
+            }
+
+            val remaining = maxItems - entries.size
+            entries.addAll(parsed.take(remaining))
+            endpoint = json.optString("next").takeIf { it.isNotBlank() }
+            page += 1
+        }
+
+        return entries
+            .sortedByDescending { it.playedAt }
+    }
+
+    private fun parseRecentEntriesPage(json: JSONObject): List<RecentEntry> {
         val items = json.optJSONArray("items") ?: return emptyList()
-        val seenUris = mutableSetOf<String>()
-        val list = mutableListOf<SpotifyMediaItem>()
+        val parsed = mutableListOf<RecentEntry>()
 
         for (index in 0 until items.length()) {
             val item = items.optJSONObject(index) ?: continue
             val track = item.optJSONObject("track") ?: continue
-            val uri = track.optString("uri")
-            if (uri.isNotBlank() && !seenUris.add(uri)) {
+
+            val name = track.optString("name")
+            if (name.isBlank()) {
                 continue
             }
 
-            val name = track.optString("name")
             val artist = track.optJSONArray("artists")?.optJSONObject(0)?.optString("name").orEmpty()
             val imageUrl = track.optJSONObject("album")
                 ?.optJSONArray("images")
                 ?.optJSONObject(0)
                 ?.optString("url")
-            if (name.isBlank()) continue
 
-            list.add(
-                SpotifyMediaItem(
-                    title = name,
-                    subtitle = artist.ifBlank { null },
-                    imageUrl = imageUrl?.takeIf { it.isNotBlank() }
+            val playedAtText = item.optString("played_at")
+            val playedAt = runCatching { Instant.parse(playedAtText) }.getOrNull() ?: continue
+
+            val durationMs = track.optLong("duration_ms", 0L).coerceAtLeast(0L)
+            val trackKey = track.optString("uri").takeIf { it.isNotBlank() }
+                ?: "$name|$artist"
+
+            parsed.add(
+                RecentEntry(
+                    media = SpotifyMediaItem(
+                        title = name,
+                        subtitle = artist.ifBlank { null },
+                        imageUrl = imageUrl?.takeIf { it.isNotBlank() }
+                    ),
+                    playedAt = playedAt,
+                    durationMs = durationMs,
+                    trackKey = trackKey
                 )
             )
         }
 
+        return parsed
+    }
+
+    private fun buildRecentUniqueTracks(entries: List<RecentEntry>, limit: Int): List<SpotifyMediaItem> {
+        val seen = mutableSetOf<String>()
+        val list = mutableListOf<SpotifyMediaItem>()
+
+        entries.forEach { entry ->
+            if (!seen.add(entry.trackKey)) {
+                return@forEach
+            }
+            list.add(entry.media)
+            if (list.size >= limit) {
+                return list
+            }
+        }
+
         return list
+    }
+
+    private fun buildDailySummaries(entries: List<RecentEntry>, maxDays: Int): List<SpotifyDailySummary> {
+        if (entries.isEmpty()) {
+            return emptyList()
+        }
+
+        val zone = ZoneId.systemDefault()
+        val formatter = DateTimeFormatter.ofPattern("dd/MM")
+        val grouped = entries.groupBy { it.playedAt.atZone(zone).toLocalDate() }
+
+        return grouped.entries
+            .sortedByDescending { it.key }
+            .take(maxDays)
+            .map { (date, dayEntries) ->
+                val totalMs = dayEntries.sumOf { it.durationMs }
+                val minutes = toRoundedMinutes(totalMs)
+                val rankedTracks = dayEntries
+                    .groupBy { it.trackKey }
+                    .values
+                    .map { sameTrackEntries ->
+                        TrackRanking(
+                            media = sameTrackEntries.first().media,
+                            plays = sameTrackEntries.size,
+                            durationMs = sameTrackEntries.sumOf { it.durationMs }
+                        )
+                    }
+                    .sortedWith(
+                        compareByDescending<TrackRanking> { it.plays }
+                            .thenByDescending { it.durationMs }
+                    )
+                    .take(3)
+                    .map { it.media }
+
+                SpotifyDailySummary(
+                    dateIso = date.toString(),
+                    dateLabel = formatter.format(date),
+                    minutesHeard = minutes,
+                    playsCount = dayEntries.size,
+                    topTracks = rankedTracks
+                )
+            }
+    }
+
+    private fun calculateWindowMinutes(entries: List<RecentEntry>): Int {
+        return toRoundedMinutes(entries.sumOf { it.durationMs })
+    }
+
+    private fun toRoundedMinutes(durationMs: Long): Int {
+        if (durationMs <= 0L) return 0
+        val rounded = (durationMs / 60000.0).roundToInt()
+        return rounded.coerceAtLeast(1)
     }
 
     private fun getJson(accessToken: String, endpoint: String): JSONObject {
@@ -193,4 +359,17 @@ class SpotifyInsightsService {
         }
         return JSONObject(body)
     }
+
+    private data class RecentEntry(
+        val media: SpotifyMediaItem,
+        val playedAt: Instant,
+        val durationMs: Long,
+        val trackKey: String
+    )
+
+    private data class TrackRanking(
+        val media: SpotifyMediaItem,
+        val plays: Int,
+        val durationMs: Long
+    )
 }

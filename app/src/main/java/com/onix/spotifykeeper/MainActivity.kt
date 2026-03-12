@@ -23,6 +23,7 @@ class MainActivity : AppCompatActivity() {
     private var webApiAccessToken: String? = null
     private var pendingTopRequest = false
     private var latestStatus: String = "Projeto iniciado. Conecte ao Spotify."
+    private var cachedTopSummary: SpotifyTopSummary? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -79,7 +80,13 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.topStatsButton.setOnClickListener {
-            loadTopStats()
+            val cached = cachedTopSummary
+            if (cached != null) {
+                openTopStatsScreen(cached)
+                loadTopStats(openOnSuccess = false, showLoadingStatus = false)
+            } else {
+                loadTopStats(openOnSuccess = true, showLoadingStatus = true)
+            }
         }
 
         binding.updateButton.setOnClickListener {
@@ -101,7 +108,7 @@ class MainActivity : AppCompatActivity() {
                 renderStatus("Autorizacao concluida para carregar tops.")
                 if (pendingTopRequest) {
                     pendingTopRequest = false
-                    loadTopStats()
+                    loadTopStats(openOnSuccess = true, showLoadingStatus = true)
                 }
             }
 
@@ -174,7 +181,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun loadTopStats() {
+    private fun loadTopStats(openOnSuccess: Boolean, showLoadingStatus: Boolean) {
         val token = webApiAccessToken
         if (token.isNullOrBlank()) {
             pendingTopRequest = true
@@ -183,7 +190,9 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        renderStatus("Carregando tops de musicas, artistas e playlists...")
+        if (showLoadingStatus) {
+            renderStatus("Carregando tops, minutos e resumo por dia...")
+        }
         ioExecutor.execute {
             val result = runCatching {
                 spotifyInsightsService.fetchTopSummary(token)
@@ -191,12 +200,18 @@ class MainActivity : AppCompatActivity() {
 
             runOnUiThread {
                 result.onSuccess { summary ->
-                    openTopStatsScreen(summary)
+                    cachedTopSummary = summary
+                    if (openOnSuccess) {
+                        openTopStatsScreen(summary)
+                    } else {
+                        renderStatus("Tops atualizados em segundo plano.")
+                    }
                 }.onFailure { error ->
                     if (error.message == "TOKEN_EXPIRED") {
                         webApiAccessToken = null
+                        cachedTopSummary = null
                         renderStatus("Token expirou. Toque em 'Ver tops' novamente para autorizar.")
-                    } else {
+                    } else if (showLoadingStatus) {
                         renderStatus("Falha ao carregar tops: ${error.message}")
                     }
                 }
