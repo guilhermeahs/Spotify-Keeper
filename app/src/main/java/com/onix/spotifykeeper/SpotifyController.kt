@@ -33,6 +33,7 @@ class SpotifyController(
     private var paused = true
     private var lastUri: String? = null
     private var pendingPlayUri: String? = null
+    private var pendingResumeCurrent: Boolean = false
     private var trackName: String? = null
     private var artistName: String? = null
     private var playbackPositionMs: Long = 0L
@@ -76,6 +77,11 @@ class SpotifyController(
                     pendingPlayUri?.let { queuedUri ->
                         pendingPlayUri = null
                         playInternal(queuedUri, origin = "play pendente")
+                        return
+                    }
+                    if (pendingResumeCurrent) {
+                        pendingResumeCurrent = false
+                        resumeInternal(origin = "retomar pendente")
                     }
                 }
 
@@ -93,7 +99,7 @@ class SpotifyController(
 
     fun playPlaylist(uri: String): String {
         val parsedUri = normalizeSpotifyUri(uri)
-            ?: return "URI invalida. Use spotify:playlist:<id> ou link https://open.spotify.com/playlist/<id>."
+            ?: return "URI invalida. Use spotify:<tipo>:<id> ou link open.spotify.com (playlist/faixa/album/artista)."
 
         lastUri = parsedUri
         pauseRequestedByUser = false
@@ -111,6 +117,24 @@ class SpotifyController(
 
         playInternal(parsedUri, origin = "comando manual")
         return "Comando de play enviado."
+    }
+
+    fun playCurrent(): String {
+        pauseRequestedByUser = false
+        val appRemote = spotifyAppRemote
+        if (!connected || appRemote == null) {
+            pendingResumeCurrent = true
+            val connectMessage = connect()
+            return if (connecting || connected) {
+                "Conectando para retomar a reproducao atual..."
+            } else {
+                pendingResumeCurrent = false
+                connectMessage
+            }
+        }
+
+        resumeInternal(origin = "comando manual")
+        return "Comando para retomar reproducao atual enviado."
     }
 
     fun pause(): String {
@@ -137,19 +161,7 @@ class SpotifyController(
             "Conecte primeiro."
         } else {
             pauseRequestedByUser = false
-            appRemote.playerApi.resume()
-                .setResultCallback {
-                    paused = false
-                    emitStatus("Reproducao retomada.")
-                }
-                .setErrorCallback { error ->
-                    val fallbackUri = lastUri
-                    if (fallbackUri.isNullOrBlank()) {
-                        emitStatus(describeError("Falha ao retomar", error))
-                    } else {
-                        playInternal(fallbackUri, origin = "fallback do resume")
-                    }
-                }
+            resumeInternal(origin = "botao retomar")
             "Comando de retomada enviado."
         }
     }
@@ -253,6 +265,23 @@ class SpotifyController(
             }
     }
 
+    private fun resumeInternal(origin: String) {
+        val appRemote = spotifyAppRemote ?: return
+        appRemote.playerApi.resume()
+            .setResultCallback {
+                paused = false
+                emitStatus("Reproducao retomada ($origin).")
+            }
+            .setErrorCallback { error ->
+                val fallbackUri = lastUri
+                if (fallbackUri.isNullOrBlank()) {
+                    emitStatus(describeError("Falha ao retomar", error))
+                } else {
+                    playInternal(fallbackUri, origin = "fallback do resume")
+                }
+            }
+    }
+
     private fun playInternal(uri: String, origin: String) {
         val appRemote = spotifyAppRemote ?: return
         appRemote.playerApi.play(uri)
@@ -274,10 +303,14 @@ class SpotifyController(
             return value
         }
 
-        val playlistRegex = Regex("""https?://open\.spotify\.com/playlist/([a-zA-Z0-9]+)""")
-        val match = playlistRegex.find(value) ?: return null
-        val playlistId = match.groupValues.getOrNull(1).orEmpty()
-        return if (playlistId.isBlank()) null else "spotify:playlist:$playlistId"
+        val entityRegex = Regex(
+            """https?://open\.spotify\.com/(playlist|track|album|artist|show|episode)/([a-zA-Z0-9]+)""",
+            RegexOption.IGNORE_CASE
+        )
+        val match = entityRegex.find(value) ?: return null
+        val entityType = match.groupValues.getOrNull(1)?.lowercase().orEmpty()
+        val entityId = match.groupValues.getOrNull(2).orEmpty()
+        return if (entityType.isBlank() || entityId.isBlank()) null else "spotify:$entityType:$entityId"
     }
 
     private fun isSpotifyInstalled(): Boolean {

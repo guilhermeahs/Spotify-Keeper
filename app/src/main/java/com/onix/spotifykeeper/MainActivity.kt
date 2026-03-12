@@ -29,7 +29,7 @@ class MainActivity : AppCompatActivity() {
         binding.playButton.setOnClickListener {
             val uri = binding.playlistInput.text?.toString()?.trim().orEmpty()
             val result = if (uri.isBlank()) {
-                "Informe uma playlist URI valida."
+                spotifyController.playCurrent()
             } else {
                 spotifyController.playPlaylist(uri)
             }
