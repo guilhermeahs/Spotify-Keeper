@@ -17,7 +17,7 @@ import com.onix.spotifykeeper.databinding.ItemTopEntryBinding
 class TopStatsActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityTopStatsBinding
-    private val dayByChipId = mutableMapOf<Int, SpotifyDailySummary?>
+    private val dayByChipId = mutableMapOf<Int, SpotifyDailySummary?>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
