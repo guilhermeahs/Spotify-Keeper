@@ -56,6 +56,7 @@ class SpotifyController(
     private var pauseRequestedByUser = false
     private var autoResumeInFlight = false
     private var lastAutoResumeAtMs: Long = 0L
+    private var continuousPlayModeEnabled = false
 
     private var lastImageUriRaw: String? = null
     private var lastImageUrl: String? = null
@@ -190,6 +191,10 @@ class SpotifyController(
 
     fun pause(): String {
         val appRemote = spotifyAppRemote
+        if (continuousPlayModeEnabled) {
+            emitStatus("Modo travar play ativo. Desative para pausar.")
+            return "Modo travar play ativo. Desative para pausar."
+        }
         return if (!connected || appRemote == null) {
             "Conecte primeiro."
         } else {
@@ -216,6 +221,24 @@ class SpotifyController(
             "Comando de retomada enviado."
         }
     }
+
+    fun setContinuousPlayMode(enabled: Boolean) {
+        continuousPlayModeEnabled = enabled
+        if (enabled) {
+            pauseRequestedByUser = false
+            spotifyAppRemote?.let { appRemote ->
+                if (paused) {
+                    resumeInternal(origin = "travar play")
+                } else {
+                    emitStatus("Modo travar play ativo.")
+                }
+            } ?: emitStatus("Modo travar play ativo.")
+        } else {
+            emitStatus("Modo travar play desativado.")
+        }
+    }
+
+    fun isContinuousPlayModeEnabled(): Boolean = continuousPlayModeEnabled
 
     fun getStatus(): PlaybackSnapshot {
         val text = when {
@@ -325,7 +348,7 @@ class SpotifyController(
     }
 
     private fun maybeAutoResume(appRemote: SpotifyAppRemote, state: PlayerState) {
-        if (!connected || !state.isPaused || pauseRequestedByUser) {
+        if (!connected || !state.isPaused || (pauseRequestedByUser && !continuousPlayModeEnabled)) {
             return
         }
         if (autoResumeInFlight) {

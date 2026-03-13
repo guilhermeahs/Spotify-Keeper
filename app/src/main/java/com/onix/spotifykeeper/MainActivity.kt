@@ -37,6 +37,12 @@ class MainActivity : AppCompatActivity() {
         ALL_TIME
     }
 
+    private enum class StatsPeriod {
+        FOUR_WEEKS,
+        SIX_MONTHS,
+        ALL_TIME
+    }
+
     private lateinit var binding: ActivityMainBinding
     private lateinit var spotifyController: SpotifyController
     private lateinit var appUpdater: AppUpdater
@@ -52,8 +58,10 @@ class MainActivity : AppCompatActivity() {
     private var cachedTopSummary: SpotifyTopSummary? = null
     private var latestStatus: String = "Projeto iniciado. Conecte ao Spotify."
     private var keepAliveEnabled = false
+    private var alwaysPlayModeEnabled = false
     private var currentPage = MainPage.HOME
     private var highlightsPeriod = HighlightsPeriod.FOUR_WEEKS
+    private var statsPeriod = StatsPeriod.FOUR_WEEKS
     private var lastNowPlayingArtworkKey: String? = null
 
     private val importHistoryLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -233,6 +241,12 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        binding.alwaysPlayButton.setOnClickListener {
+            alwaysPlayModeEnabled = !alwaysPlayModeEnabled
+            spotifyController.setContinuousPlayMode(alwaysPlayModeEnabled)
+            binding.alwaysPlayButton.text = if (alwaysPlayModeEnabled) "Travar play: ON" else "Travar play: OFF"
+        }
+
         binding.shareButton.setOnClickListener {
             shareHighlights()
         }
@@ -255,7 +269,28 @@ class MainActivity : AppCompatActivity() {
             renderHighlights(cachedTopSummary)
         }
 
+        binding.statsPeriodFourWeeksChip.setOnClickListener {
+            statsPeriod = StatsPeriod.FOUR_WEEKS
+            updateStatsPeriodChipStyle()
+            renderStats(cachedTopSummary)
+        }
+
+        binding.statsPeriodSixMonthsChip.setOnClickListener {
+            statsPeriod = StatsPeriod.SIX_MONTHS
+            updateStatsPeriodChipStyle()
+            renderStats(cachedTopSummary)
+        }
+
+        binding.statsPeriodAllChip.setOnClickListener {
+            statsPeriod = StatsPeriod.ALL_TIME
+            updateStatsPeriodChipStyle()
+            renderStats(cachedTopSummary)
+        }
+
+        alwaysPlayModeEnabled = spotifyController.isContinuousPlayModeEnabled()
+        binding.alwaysPlayButton.text = if (alwaysPlayModeEnabled) "Travar play: ON" else "Travar play: OFF"
         updatePeriodChipStyle()
+        updateStatsPeriodChipStyle()
     }
 
     private fun requestTopRefresh() {
@@ -270,9 +305,17 @@ class MainActivity : AppCompatActivity() {
 
     private fun importHistoryFromUri(uri: Uri) {
         renderStatus("Importando historico do Spotify...")
+        val tokenSnapshot = webApiAccessToken
         ioExecutor.execute {
             val result = runCatching {
-                historyImportService.importFromUri(uri)
+                val imported = historyImportService.importFromUri(uri)
+                if (tokenSnapshot.isNullOrBlank()) {
+                    imported
+                } else {
+                    imported.copy(
+                        summary = spotifyInsightsService.enrichMissingArtwork(imported.summary, tokenSnapshot)
+                    )
+                }
             }
             runOnUiThread {
                 result.onSuccess { imported ->
@@ -293,15 +336,21 @@ class MainActivity : AppCompatActivity() {
 
         val mergedDaily = dailyHistoryStore.mergeLatest(imported.dailySummaries)
 
-        val mergedTopTracks = (imported.topTracks + existing?.topTracks.orEmpty())
-            .distinctBy { normalizeTrackKey(it.title, it.subtitle) }
-            .take(60)
-        val mergedTopArtists = (imported.topArtists + existing?.topArtists.orEmpty())
-            .distinctBy { (it.title + "|" + it.subtitle).lowercase(Locale.ROOT) }
-            .take(60)
-        val mergedRecent = (imported.recentlyPlayed + existing?.recentlyPlayed.orEmpty())
-            .distinctBy { normalizeTrackKey(it.title, it.subtitle) }
-            .take(60)
+        val mergedTopTracks = mergeMediaItemsPreservingArtwork(
+            preferred = imported.topTracks,
+            secondary = existing?.topTracks.orEmpty(),
+            limit = 60
+        ) { normalizeTrackKey(it.title, it.subtitle) }
+        val mergedTopArtists = mergeMediaItemsPreservingArtwork(
+            preferred = imported.topArtists,
+            secondary = existing?.topArtists.orEmpty(),
+            limit = 60
+        ) { (it.title + "|" + it.subtitle).lowercase(Locale.ROOT) }
+        val mergedRecent = mergeMediaItemsPreservingArtwork(
+            preferred = imported.recentlyPlayed,
+            secondary = existing?.recentlyPlayed.orEmpty(),
+            limit = 60
+        ) { normalizeTrackKey(it.title, it.subtitle) }
 
         val recentDays = mergedDaily.take(30)
         val recentMinutes = recentDays.sumOf { it.minutesHeard }
@@ -340,7 +389,8 @@ class MainActivity : AppCompatActivity() {
 
         ioExecutor.execute {
             val result = runCatching {
-                spotifyInsightsService.fetchTopSummary(token)
+                val fresh = spotifyInsightsService.fetchTopSummary(token)
+                spotifyInsightsService.enrichMissingArtwork(fresh, token)
             }
 
             runOnUiThread {
@@ -392,11 +442,10 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        binding.trendPlaysValue.text = summary.recentWindowPlays.toString()
-        binding.trendMinutesValue.text = summary.recentWindowMinutes.toString()
-
         val today = summary.dailySummaries.getOrNull(0)
         val yesterday = summary.dailySummaries.getOrNull(1)
+        binding.trendPlaysValue.text = (today?.playsCount ?: 0).toString()
+        binding.trendMinutesValue.text = (today?.minutesHeard ?: 0).toString()
 
         val playsDelta = percentDelta(today?.playsCount, yesterday?.playsCount)
         val minutesDelta = percentDelta(today?.minutesHeard, yesterday?.minutesHeard)
@@ -554,8 +603,11 @@ class MainActivity : AppCompatActivity() {
             HighlightsPeriod.ALL_TIME -> summary.topTracks + summary.recentlyPlayed + summary.dailySummaries.flatMap { it.topTracks }
         }
 
-        return (rankedFromDaily + fallback)
-            .distinctBy { normalizeTrackKey(it.title, it.subtitle) }
+        return mergeMediaItemsPreservingArtwork(
+            preferred = rankedFromDaily,
+            secondary = fallback,
+            limit = 80
+        ) { normalizeTrackKey(it.title, it.subtitle) }
     }
 
     private fun rankHighlightsFromDaily(days: List<SpotifyDailySummary>): List<SpotifyMediaItem> {
@@ -564,7 +616,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         data class TrackAgg(
-            var score: Int = 0,
+            var plays: Int = 0,
+            var minutes: Int = 0,
             var imageUrl: String? = null,
             var artistLabel: String? = null
         )
@@ -574,24 +627,31 @@ class MainActivity : AppCompatActivity() {
             day.topTracks.forEachIndexed { index, item ->
                 val key = normalizeTrackKey(item.title, item.subtitle)
                 val agg = buckets.getOrPut(key) { TrackAgg() }
-                agg.score += (6 - index).coerceAtLeast(1)
+                val parsed = parseTrackSubtitle(item.subtitle)
+                val plays = parsed.plays ?: (6 - index).coerceAtLeast(1)
+                val minutes = parsed.minutes ?: (plays * 3)
+                agg.plays += plays
+                agg.minutes += minutes
                 if (agg.imageUrl.isNullOrBlank() && !item.imageUrl.isNullOrBlank()) {
                     agg.imageUrl = item.imageUrl
                 }
                 if (agg.artistLabel.isNullOrBlank()) {
-                    agg.artistLabel = extractArtistLabel(item.subtitle)
+                    agg.artistLabel = parsed.artist.orEmpty()
                 }
             }
         }
 
         return buckets.entries
-            .sortedByDescending { it.value.score }
+            .sortedWith(
+                compareByDescending<Map.Entry<String, TrackAgg>> { it.value.minutes }
+                    .thenByDescending { it.value.plays }
+            )
             .map { (key, agg) ->
                 val title = key.substringBefore("::")
                 val artist = agg.artistLabel.orEmpty()
                 SpotifyMediaItem(
                     title = title,
-                    subtitle = if (artist.isBlank()) "${agg.score} pts no periodo" else "$artist - ${agg.score} pts no periodo",
+                    subtitle = if (artist.isBlank()) "${agg.plays}x - ${agg.minutes} min" else "$artist - ${agg.plays}x - ${agg.minutes} min",
                     imageUrl = agg.imageUrl
                 )
             }
@@ -608,7 +668,70 @@ class MainActivity : AppCompatActivity() {
         if (value.isBlank()) {
             return ""
         }
-        return value.substringBefore(" - ").substringBefore(" • ").trim()
+        val candidate = value.substringBefore(" - ").substringBefore(" • ").trim()
+        if (candidate.matches(Regex("""\d+\s*x""", RegexOption.IGNORE_CASE))) {
+            return ""
+        }
+        if (candidate.matches(Regex("""\d+\s*min""", RegexOption.IGNORE_CASE))) {
+            return ""
+        }
+        return candidate
+    }
+
+    private fun parseTrackSubtitle(subtitle: String?): ParsedTrackSubtitle {
+        val value = subtitle.orEmpty()
+        if (value.isBlank()) {
+            return ParsedTrackSubtitle(artist = null, plays = null, minutes = null)
+        }
+        val plays = Regex("""(\d+)\s*x""", RegexOption.IGNORE_CASE)
+            .find(value)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+        val minutes = Regex("""(\d+)\s*min""", RegexOption.IGNORE_CASE)
+            .find(value)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+        val artist = extractArtistLabel(value).takeIf { it.isNotBlank() }
+        return ParsedTrackSubtitle(
+            artist = artist,
+            plays = plays,
+            minutes = minutes
+        )
+    }
+
+    private fun mergeMediaItemsPreservingArtwork(
+        preferred: List<SpotifyMediaItem>,
+        secondary: List<SpotifyMediaItem>,
+        limit: Int,
+        keySelector: (SpotifyMediaItem) -> String
+    ): List<SpotifyMediaItem> {
+        val merged = linkedMapOf<String, SpotifyMediaItem>()
+        (preferred + secondary).forEach { item ->
+            val key = keySelector(item)
+            val existing = merged[key]
+            if (existing == null) {
+                merged[key] = item
+                return@forEach
+            }
+
+            val betterImage = if (existing.imageUrl.isNullOrBlank() && !item.imageUrl.isNullOrBlank()) {
+                item.imageUrl
+            } else {
+                existing.imageUrl
+            }
+            val betterSubtitle = if (existing.subtitle.isNullOrBlank() && !item.subtitle.isNullOrBlank()) {
+                item.subtitle
+            } else {
+                existing.subtitle
+            }
+            merged[key] = existing.copy(
+                subtitle = betterSubtitle,
+                imageUrl = betterImage
+            )
+        }
+        return merged.values.take(limit)
     }
 
     private fun renderStats(summary: SpotifyTopSummary?) {
@@ -623,32 +746,54 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val today = summary.dailySummaries.getOrNull(0)
-        val yesterday = summary.dailySummaries.getOrNull(1)
+        val periodDays = summary.dailySummaries
+            .sortedByDescending { it.dateIso }
+            .take(
+                when (statsPeriod) {
+                    StatsPeriod.FOUR_WEEKS -> 28
+                    StatsPeriod.SIX_MONTHS -> 180
+                    StatsPeriod.ALL_TIME -> Int.MAX_VALUE
+                }
+            )
+
+        val today = periodDays.getOrNull(0)
+        val yesterday = periodDays.getOrNull(1)
+        val uniqueTracks = periodDays.sumOf { it.uniqueTracksCount }
+        val plays = periodDays.sumOf { it.playsCount }
+        val minutes = periodDays.sumOf { it.minutesHeard }
+        val artistsFromPeriod = periodDays
+            .flatMap { day -> day.topTracks.map { extractArtistLabel(it.subtitle) } }
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+        val artistsCount = if (artistsFromPeriod.isEmpty()) summary.topArtists.size else artistsFromPeriod.size
 
         bindStatCard(
             binding.statsCardPlays,
             "reproducoes",
-            summary.recentWindowPlays,
+            plays,
             percentDelta(today?.playsCount, yesterday?.playsCount).value
         )
         bindStatCard(
             binding.statsCardTracks,
             "faixas diferentes",
-            summary.recentWindowUniqueTracks,
+            uniqueTracks,
             percentDelta(today?.uniqueTracksCount, yesterday?.uniqueTracksCount).value
         )
         bindStatCard(
             binding.statsCardMinutes,
             "minutos ouvidos",
-            summary.recentWindowMinutes,
+            minutes,
             percentDelta(today?.minutesHeard, yesterday?.minutesHeard).value
         )
         bindStatCard(
             binding.statsCardArtists,
             "artistas diferentes",
-            summary.followedArtistsCount,
-            null
+            artistsCount,
+            percentDelta(
+                today?.let { artistsCountForDay(it) },
+                yesterday?.let { artistsCountForDay(it) }
+            ).value
         )
         bindStatCard(
             binding.statsCardPlaylists,
@@ -659,12 +804,17 @@ class MainActivity : AppCompatActivity() {
         bindStatCard(
             binding.statsCardDays,
             "dias reproduzidos",
-            summary.dailySummaries.size,
+            periodDays.size,
             null
         )
 
+        val periodLabel = when (statsPeriod) {
+            StatsPeriod.FOUR_WEEKS -> "4 semanas"
+            StatsPeriod.SIX_MONTHS -> "6 meses"
+            StatsPeriod.ALL_TIME -> "completo"
+        }
         val topArtist = summary.topArtists.firstOrNull()?.title ?: "sem destaque"
-        binding.statsInsightText.text = "Seu artista em destaque agora: $topArtist."
+        binding.statsInsightText.text = "Periodo $periodLabel: $plays reproducoes e $minutes minutos. Artista em destaque: $topArtist."
     }
 
     private fun bindStatCard(card: ItemStatMetricBinding, label: String, value: Int, deltaPercent: Int?) {
@@ -680,6 +830,15 @@ class MainActivity : AppCompatActivity() {
         val prefix = if (deltaPercent > 0) "+" else ""
         card.statDeltaText.text = "$prefix$deltaPercent%"
         applyDeltaColor(card.statDeltaText, isNegative = deltaPercent <= 0)
+    }
+
+    private fun artistsCountForDay(day: SpotifyDailySummary): Int {
+        val artists = day.topTracks
+            .map { extractArtistLabel(it.subtitle) }
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+        return artists.size
     }
 
     private fun renderNowPlaying(visual: NowPlayingVisual) {
@@ -763,6 +922,19 @@ class MainActivity : AppCompatActivity() {
         binding.periodFourWeeksChip.setTextColor(if (highlightsPeriod == HighlightsPeriod.FOUR_WEEKS) Color.parseColor("#102010") else Color.parseColor("#CFD8E8"))
         binding.periodSixMonthsChip.setTextColor(if (highlightsPeriod == HighlightsPeriod.SIX_MONTHS) Color.parseColor("#102010") else Color.parseColor("#CFD8E8"))
         binding.periodAllChip.setTextColor(if (highlightsPeriod == HighlightsPeriod.ALL_TIME) Color.parseColor("#102010") else Color.parseColor("#CFD8E8"))
+    }
+
+    private fun updateStatsPeriodChipStyle() {
+        val activeBackground = R.drawable.bg_chip_active
+        val inactiveBackground = R.drawable.bg_chip_inactive
+
+        binding.statsPeriodFourWeeksChip.setBackgroundResource(if (statsPeriod == StatsPeriod.FOUR_WEEKS) activeBackground else inactiveBackground)
+        binding.statsPeriodSixMonthsChip.setBackgroundResource(if (statsPeriod == StatsPeriod.SIX_MONTHS) activeBackground else inactiveBackground)
+        binding.statsPeriodAllChip.setBackgroundResource(if (statsPeriod == StatsPeriod.ALL_TIME) activeBackground else inactiveBackground)
+
+        binding.statsPeriodFourWeeksChip.setTextColor(if (statsPeriod == StatsPeriod.FOUR_WEEKS) Color.parseColor("#102010") else Color.parseColor("#CFD8E8"))
+        binding.statsPeriodSixMonthsChip.setTextColor(if (statsPeriod == StatsPeriod.SIX_MONTHS) Color.parseColor("#102010") else Color.parseColor("#CFD8E8"))
+        binding.statsPeriodAllChip.setTextColor(if (statsPeriod == StatsPeriod.ALL_TIME) Color.parseColor("#102010") else Color.parseColor("#CFD8E8"))
     }
 
     private fun renderStatus(text: String) {
@@ -851,6 +1023,12 @@ class MainActivity : AppCompatActivity() {
         val value: Int,
         val text: String,
         val isNegative: Boolean
+    )
+
+    private data class ParsedTrackSubtitle(
+        val artist: String?,
+        val plays: Int?,
+        val minutes: Int?
     )
 
     private val Int.dp: Int

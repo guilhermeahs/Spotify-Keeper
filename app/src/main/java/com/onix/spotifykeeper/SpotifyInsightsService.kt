@@ -4,6 +4,7 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
+import java.net.URLEncoder
 import java.net.URL
 import java.time.Instant
 import java.time.ZoneId
@@ -168,6 +169,58 @@ class SpotifyInsightsService(context: Context) {
             likedSongsCount = likedSongsCount,
             followedArtistsCount = followedArtistsCount,
             playlistsCount = playlistsCount
+        )
+    }
+
+    fun enrichMissingArtwork(summary: SpotifyTopSummary, accessToken: String): SpotifyTopSummary {
+        if (accessToken.isBlank()) {
+            return summary
+        }
+        if (!hasMissingArtwork(summary)) {
+            return summary
+        }
+
+        val budget = ArtworkLookupBudget(MAX_ARTWORK_LOOKUPS)
+        val trackArtworkCache = mutableMapOf<String, String?>()
+        val artistArtworkCache = mutableMapOf<String, String?>()
+
+        val enrichedTopTracks = enrichTrackItems(
+            items = summary.topTracks,
+            accessToken = accessToken,
+            budget = budget,
+            trackArtworkCache = trackArtworkCache,
+            artistArtworkCache = artistArtworkCache
+        )
+        val enrichedRecent = enrichTrackItems(
+            items = summary.recentlyPlayed,
+            accessToken = accessToken,
+            budget = budget,
+            trackArtworkCache = trackArtworkCache,
+            artistArtworkCache = artistArtworkCache
+        )
+        val enrichedTopArtists = enrichArtistItems(
+            items = summary.topArtists,
+            accessToken = accessToken,
+            budget = budget,
+            artistArtworkCache = artistArtworkCache
+        )
+        val enrichedDaily = summary.dailySummaries.map { day ->
+            day.copy(
+                topTracks = enrichTrackItems(
+                    items = day.topTracks,
+                    accessToken = accessToken,
+                    budget = budget,
+                    trackArtworkCache = trackArtworkCache,
+                    artistArtworkCache = artistArtworkCache
+                )
+            )
+        }
+
+        return summary.copy(
+            topTracks = enrichedTopTracks,
+            topArtists = enrichedTopArtists,
+            recentlyPlayed = enrichedRecent,
+            dailySummaries = enrichedDaily
         )
     }
 
@@ -372,6 +425,167 @@ class SpotifyInsightsService(context: Context) {
         }.getOrDefault(0)
     }
 
+    private fun enrichTrackItems(
+        items: List<SpotifyMediaItem>,
+        accessToken: String,
+        budget: ArtworkLookupBudget,
+        trackArtworkCache: MutableMap<String, String?>,
+        artistArtworkCache: MutableMap<String, String?>
+    ): List<SpotifyMediaItem> {
+        return items.map { item ->
+            if (!item.imageUrl.isNullOrBlank()) {
+                return@map item
+            }
+
+            val trackKey = normalizeTrackLookupKey(item.title, extractArtistFromSubtitle(item.subtitle))
+            val cached = if (trackArtworkCache.containsKey(trackKey)) trackArtworkCache[trackKey] else null
+            val imageUrl = if (cached != null || trackArtworkCache.containsKey(trackKey)) {
+                cached
+            } else {
+                val artist = extractArtistFromSubtitle(item.subtitle)
+                val trackImage = resolveTrackArtwork(
+                    accessToken = accessToken,
+                    title = item.title,
+                    artist = artist,
+                    budget = budget
+                )
+                val fallbackArtistImage = if (trackImage.isNullOrBlank() && !artist.isNullOrBlank()) {
+                    resolveArtistArtwork(
+                        accessToken = accessToken,
+                        artist = artist,
+                        budget = budget,
+                        artistArtworkCache = artistArtworkCache
+                    )
+                } else {
+                    null
+                }
+                (trackImage ?: fallbackArtistImage).also { found ->
+                    trackArtworkCache[trackKey] = found
+                }
+            }
+
+            if (imageUrl.isNullOrBlank()) item else item.copy(imageUrl = imageUrl)
+        }
+    }
+
+    private fun enrichArtistItems(
+        items: List<SpotifyMediaItem>,
+        accessToken: String,
+        budget: ArtworkLookupBudget,
+        artistArtworkCache: MutableMap<String, String?>
+    ): List<SpotifyMediaItem> {
+        return items.map { item ->
+            if (!item.imageUrl.isNullOrBlank()) {
+                return@map item
+            }
+            val image = resolveArtistArtwork(
+                accessToken = accessToken,
+                artist = item.title,
+                budget = budget,
+                artistArtworkCache = artistArtworkCache
+            )
+            if (image.isNullOrBlank()) item else item.copy(imageUrl = image)
+        }
+    }
+
+    private fun resolveTrackArtwork(
+        accessToken: String,
+        title: String,
+        artist: String?,
+        budget: ArtworkLookupBudget
+    ): String? {
+        if (!budget.consume()) {
+            return null
+        }
+        return runCatching {
+            searchTrackArtwork(accessToken, title, artist)
+        }.getOrNull()
+    }
+
+    private fun resolveArtistArtwork(
+        accessToken: String,
+        artist: String,
+        budget: ArtworkLookupBudget,
+        artistArtworkCache: MutableMap<String, String?>
+    ): String? {
+        val normalized = artist.trim().lowercase()
+        if (artistArtworkCache.containsKey(normalized)) {
+            return artistArtworkCache[normalized]
+        }
+        if (!budget.consume()) {
+            artistArtworkCache[normalized] = null
+            return null
+        }
+
+        val image = runCatching {
+            searchArtistArtwork(accessToken, artist)
+        }.getOrNull()
+        artistArtworkCache[normalized] = image
+        return image
+    }
+
+    private fun searchTrackArtwork(accessToken: String, title: String, artist: String?): String? {
+        val query = if (artist.isNullOrBlank()) {
+            "track:$title"
+        } else {
+            "track:$title artist:$artist"
+        }
+        val endpoint = "https://api.spotify.com/v1/search?type=track&limit=1&q=${query.urlEncode()}"
+        val json = getJson(accessToken, endpoint)
+        val firstTrack = json.optJSONObject("tracks")
+            ?.optJSONArray("items")
+            ?.optJSONObject(0)
+            ?: return null
+        return firstTrack.optJSONObject("album")
+            ?.optJSONArray("images")
+            ?.optJSONObject(0)
+            ?.optString("url")
+            ?.takeIf { it.isNotBlank() }
+    }
+
+    private fun searchArtistArtwork(accessToken: String, artist: String): String? {
+        val endpoint = "https://api.spotify.com/v1/search?type=artist&limit=1&q=${artist.urlEncode()}"
+        val json = getJson(accessToken, endpoint)
+        val firstArtist = json.optJSONObject("artists")
+            ?.optJSONArray("items")
+            ?.optJSONObject(0)
+            ?: return null
+        return firstArtist.optJSONArray("images")
+            ?.optJSONObject(0)
+            ?.optString("url")
+            ?.takeIf { it.isNotBlank() }
+    }
+
+    private fun hasMissingArtwork(summary: SpotifyTopSummary): Boolean {
+        if (summary.topTracks.any { it.imageUrl.isNullOrBlank() }) return true
+        if (summary.topArtists.any { it.imageUrl.isNullOrBlank() }) return true
+        if (summary.recentlyPlayed.any { it.imageUrl.isNullOrBlank() }) return true
+        return summary.dailySummaries.any { day -> day.topTracks.any { it.imageUrl.isNullOrBlank() } }
+    }
+
+    private fun extractArtistFromSubtitle(subtitle: String?): String? {
+        val raw = subtitle.orEmpty().trim()
+        if (raw.isBlank()) {
+            return null
+        }
+        val artist = raw.substringBefore(" - ").substringBefore(" • ").trim()
+        if (artist.matches(Regex("""\d+\s*x""", RegexOption.IGNORE_CASE))) {
+            return null
+        }
+        if (artist.matches(Regex("""\d+\s*min""", RegexOption.IGNORE_CASE))) {
+            return null
+        }
+        return artist.ifBlank { null }
+    }
+
+    private fun normalizeTrackLookupKey(title: String, artist: String?): String {
+        val normalizedTitle = title.trim().lowercase()
+        val normalizedArtist = artist.orEmpty().trim().lowercase()
+        return "$normalizedTitle::$normalizedArtist"
+    }
+
+    private fun String.urlEncode(): String = URLEncoder.encode(this, Charsets.UTF_8.name())
+
     private fun fetchFollowedArtistsTotal(accessToken: String): Int {
         return runCatching {
             val json = getJson(accessToken, "https://api.spotify.com/v1/me/following?type=artist&limit=1")
@@ -427,4 +641,18 @@ class SpotifyInsightsService(context: Context) {
         val plays: Int,
         val durationMs: Long
     )
+
+    private data class ArtworkLookupBudget(var remaining: Int) {
+        fun consume(): Boolean {
+            if (remaining <= 0) {
+                return false
+            }
+            remaining -= 1
+            return true
+        }
+    }
+
+    companion object {
+        private const val MAX_ARTWORK_LOOKUPS = 120
+    }
 }
