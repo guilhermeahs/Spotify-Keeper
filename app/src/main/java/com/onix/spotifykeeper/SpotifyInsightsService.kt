@@ -1,5 +1,6 @@
 package com.onix.spotifykeeper
 
+import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -137,7 +138,9 @@ data class SpotifyTopSummary(
     }
 }
 
-class SpotifyInsightsService {
+class SpotifyInsightsService(context: Context) {
+
+    private val dailyHistoryStore = SpotifyDailyHistoryStore(context.applicationContext)
 
     fun fetchTopSummary(accessToken: String): SpotifyTopSummary {
         val topTracksJson = getJson(accessToken, "https://api.spotify.com/v1/me/top/tracks?limit=10&time_range=medium_term")
@@ -147,6 +150,7 @@ class SpotifyInsightsService {
         val recentEntries = fetchRecentEntries(accessToken, maxPages = 10, maxItems = 500)
         val recentUniqueTracks = buildRecentUniqueTracks(recentEntries, limit = 30)
         val dailySummaries = buildDailySummaries(recentEntries, maxDays = 30)
+        val mergedDailySummaries = dailyHistoryStore.mergeLatest(dailySummaries)
 
         val likedSongsCount = fetchSimpleTotal(accessToken, "https://api.spotify.com/v1/me/tracks?limit=1")
         val followedArtistsCount = fetchFollowedArtistsTotal(accessToken)
@@ -157,7 +161,7 @@ class SpotifyInsightsService {
             topArtists = parseTopArtists(topArtistsJson),
             playlists = parsePlaylists(playlistsJson),
             recentlyPlayed = recentUniqueTracks,
-            dailySummaries = dailySummaries,
+            dailySummaries = mergedDailySummaries,
             recentWindowMinutes = calculateWindowMinutes(recentEntries),
             recentWindowPlays = recentEntries.size,
             recentWindowUniqueTracks = recentEntries.map { it.trackKey }.distinct().size,
@@ -337,7 +341,7 @@ class SpotifyInsightsService {
                         TrackRanking(
                             media = SpotifyMediaItem(
                                 title = base.title,
-                                subtitle = subtitleParts.joinToString(" • "),
+                                subtitle = subtitleParts.joinToString(" - "),
                                 imageUrl = base.imageUrl
                             ),
                             plays = plays,

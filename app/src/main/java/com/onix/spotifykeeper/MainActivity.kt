@@ -33,7 +33,7 @@ class MainActivity : AppCompatActivity() {
 
         spotifyController = SpotifyControllerProvider.get(applicationContext)
         appUpdater = AppUpdater(this)
-        spotifyInsightsService = SpotifyInsightsService()
+        spotifyInsightsService = SpotifyInsightsService(this)
 
         bindActions()
         renderNowPlaying(NowPlayingVisual(title = null, artist = null, artwork = null))
