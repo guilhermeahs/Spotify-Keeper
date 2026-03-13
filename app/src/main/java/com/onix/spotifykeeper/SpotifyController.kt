@@ -28,7 +28,8 @@ data class PlaybackSnapshot(
 data class NowPlayingVisual(
     val title: String?,
     val artist: String?,
-    val artwork: Bitmap?
+    val artwork: Bitmap?,
+    val artworkUrl: String?
 )
 
 class SpotifyController(
@@ -54,6 +55,7 @@ class SpotifyController(
     private var lastAutoResumeAtMs: Long = 0L
 
     private var lastImageUriRaw: String? = null
+    private var lastImageUrl: String? = null
     private var currentArtwork: Bitmap? = null
     private val artworkCache = object : LruCache<String, Bitmap>(32) {}
 
@@ -252,6 +254,7 @@ class SpotifyController(
         artistName = null
         currentArtwork = null
         lastImageUriRaw = null
+        lastImageUrl = null
         emitNowPlaying()
     }
 
@@ -280,6 +283,7 @@ class SpotifyController(
         val currentImageUriRaw = state.track?.imageUri?.raw
         if (currentImageUriRaw != lastImageUriRaw) {
             lastImageUriRaw = currentImageUriRaw
+            lastImageUrl = toArtworkHttpUrl(currentImageUriRaw)
             if (currentImageUriRaw.isNullOrBlank()) {
                 currentArtwork = null
             } else {
@@ -480,10 +484,19 @@ class SpotifyController(
                 NowPlayingVisual(
                     title = trackName,
                     artist = artistName,
-                    artwork = currentArtwork
+                    artwork = currentArtwork,
+                    artworkUrl = lastImageUrl
                 )
             )
         }
+    }
+
+    private fun toArtworkHttpUrl(rawImageUri: String?): String? {
+        if (rawImageUri.isNullOrBlank()) {
+            return null
+        }
+        val imageId = rawImageUri.removePrefix("spotify:image:")
+        return if (imageId.isBlank()) null else "https://i.scdn.co/image/$imageId"
     }
 
     private companion object {

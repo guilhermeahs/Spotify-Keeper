@@ -6,6 +6,7 @@ import android.os.Bundle
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import coil.load
 import com.onix.spotifykeeper.databinding.ActivityMainBinding
 import com.spotify.sdk.android.auth.AuthorizationClient
 import com.spotify.sdk.android.auth.AuthorizationRequest
@@ -18,6 +19,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var spotifyController: SpotifyController
     private lateinit var appUpdater: AppUpdater
     private lateinit var spotifyInsightsService: SpotifyInsightsService
+    private lateinit var topCacheStore: SpotifyTopCacheStore
 
     private val ioExecutor = Executors.newSingleThreadExecutor()
 
@@ -25,6 +27,7 @@ class MainActivity : AppCompatActivity() {
     private var pendingTopRequest = false
     private var latestStatus: String = "Projeto iniciado. Conecte ao Spotify."
     private var cachedTopSummary: SpotifyTopSummary? = null
+    private var lastNowPlayingArtworkKey: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,9 +37,11 @@ class MainActivity : AppCompatActivity() {
         spotifyController = SpotifyControllerProvider.get(applicationContext)
         appUpdater = AppUpdater(this)
         spotifyInsightsService = SpotifyInsightsService(this)
+        topCacheStore = SpotifyTopCacheStore(this)
+        cachedTopSummary = topCacheStore.load()
 
         bindActions()
-        renderNowPlaying(NowPlayingVisual(title = null, artist = null, artwork = null))
+        renderNowPlaying(NowPlayingVisual(title = null, artist = null, artwork = null, artworkUrl = null))
         renderStatus(latestStatus)
         checkForUpdates(silent = true)
     }
@@ -72,10 +77,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.topStatsButton.setOnClickListener {
-            val cached = cachedTopSummary
+            val cached = cachedTopSummary ?: topCacheStore.load()?.also { restored ->
+                cachedTopSummary = restored
+            }
             if (cached != null) {
                 openTopStatsScreen(cached)
-                loadTopStats(openOnSuccess = false, showLoadingStatus = false)
+                if (!webApiAccessToken.isNullOrBlank()) {
+                    loadTopStats(openOnSuccess = false, showLoadingStatus = false)
+                }
             } else {
                 loadTopStats(openOnSuccess = true, showLoadingStatus = true)
             }
@@ -159,6 +168,7 @@ class MainActivity : AppCompatActivity() {
             binding.nowPlayingTitle.text = "Nada tocando agora"
             binding.nowPlayingArtist.text = "Conecte no Spotify e escolha uma musica."
             binding.nowPlayingImage.setImageResource(R.drawable.ic_music_placeholder)
+            lastNowPlayingArtworkKey = null
             return
         }
 
@@ -167,6 +177,23 @@ class MainActivity : AppCompatActivity() {
 
         if (visual.artwork != null) {
             binding.nowPlayingImage.setImageBitmap(visual.artwork)
+            lastNowPlayingArtworkKey = "bitmap"
+            return
+        }
+
+        val artworkUrl = visual.artworkUrl?.trim().orEmpty()
+        if (artworkUrl.isNotBlank()) {
+            if (lastNowPlayingArtworkKey != artworkUrl) {
+                lastNowPlayingArtworkKey = artworkUrl
+                binding.nowPlayingImage.load(artworkUrl) {
+                    crossfade(false)
+                    placeholder(R.drawable.ic_music_placeholder)
+                    error(R.drawable.ic_music_placeholder)
+                }
+            }
+        } else if (lastNowPlayingArtworkKey != "placeholder") {
+            binding.nowPlayingImage.setImageResource(R.drawable.ic_music_placeholder)
+            lastNowPlayingArtworkKey = "placeholder"
         }
     }
 
@@ -216,6 +243,7 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 result.onSuccess { summary ->
                     cachedTopSummary = summary
+                    topCacheStore.save(summary)
                     if (openOnSuccess) {
                         openTopStatsScreen(summary)
                     }
