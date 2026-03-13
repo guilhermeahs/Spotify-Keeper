@@ -434,6 +434,14 @@
                         android:layout_marginTop="8dp"
                         android:text="Buscar atualizacao do app" />
 
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/importHistoryButton"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="Importar historico Spotify (.zip/.json)" />
+
                     <TextView
                         android:id="@+id/statusText"
                         android:layout_width="match_parent"

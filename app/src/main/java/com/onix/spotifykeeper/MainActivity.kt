@@ -10,6 +10,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import coil.load
 import com.onix.spotifykeeper.databinding.ActivityMainBinding
@@ -41,6 +42,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var appUpdater: AppUpdater
     private lateinit var spotifyInsightsService: SpotifyInsightsService
     private lateinit var topCacheStore: SpotifyTopCacheStore
+    private lateinit var dailyHistoryStore: SpotifyDailyHistoryStore
+    private lateinit var historyImportService: SpotifyHistoryImportService
 
     private val ioExecutor = Executors.newSingleThreadExecutor()
 
@@ -53,6 +56,16 @@ class MainActivity : AppCompatActivity() {
     private var highlightsPeriod = HighlightsPeriod.FOUR_WEEKS
     private var lastNowPlayingArtworkKey: String? = null
 
+    private val importHistoryLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) {
+            return@registerForActivityResult
+        }
+        runCatching {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        importHistoryFromUri(uri)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
@@ -62,6 +75,8 @@ class MainActivity : AppCompatActivity() {
         appUpdater = AppUpdater(this)
         spotifyInsightsService = SpotifyInsightsService(this)
         topCacheStore = SpotifyTopCacheStore(this)
+        dailyHistoryStore = SpotifyDailyHistoryStore(this)
+        historyImportService = SpotifyHistoryImportService(this)
         cachedTopSummary = topCacheStore.load()
 
         setupUi()
@@ -190,6 +205,10 @@ class MainActivity : AppCompatActivity() {
             checkForUpdates(silent = false)
         }
 
+        binding.importHistoryButton.setOnClickListener {
+            importHistoryLauncher.launch(arrayOf("application/json", "application/zip", "application/x-zip-compressed", "text/plain", "*/*"))
+        }
+
         binding.viewStatsCard.setOnClickListener {
             showPage(MainPage.STATS)
             binding.bottomNav.selectedItemId = R.id.nav_stats
@@ -247,6 +266,64 @@ class MainActivity : AppCompatActivity() {
             return
         }
         loadTopStats(showLoadingStatus = true)
+    }
+
+    private fun importHistoryFromUri(uri: Uri) {
+        renderStatus("Importando historico do Spotify...")
+        ioExecutor.execute {
+            val result = runCatching {
+                historyImportService.importFromUri(uri)
+            }
+            runOnUiThread {
+                result.onSuccess { imported ->
+                    val merged = mergeImportedSummary(imported.summary)
+                    cachedTopSummary = merged
+                    topCacheStore.save(merged)
+                    applyTopSummary(merged)
+                    renderStatus("Historico importado: ${imported.importedPlays} reproducoes processadas.")
+                }.onFailure { error ->
+                    renderStatus("Falha ao importar historico: ${error.message}")
+                }
+            }
+        }
+    }
+
+    private fun mergeImportedSummary(imported: SpotifyTopSummary): SpotifyTopSummary {
+        val existing = cachedTopSummary ?: topCacheStore.load()
+
+        val mergedDaily = dailyHistoryStore.mergeLatest(imported.dailySummaries)
+
+        val mergedTopTracks = (imported.topTracks + existing?.topTracks.orEmpty())
+            .distinctBy { normalizeTrackKey(it.title, it.subtitle) }
+            .take(60)
+        val mergedTopArtists = (imported.topArtists + existing?.topArtists.orEmpty())
+            .distinctBy { (it.title + "|" + it.subtitle).lowercase(Locale.ROOT) }
+            .take(60)
+        val mergedRecent = (imported.recentlyPlayed + existing?.recentlyPlayed.orEmpty())
+            .distinctBy { normalizeTrackKey(it.title, it.subtitle) }
+            .take(60)
+
+        val recentDays = mergedDaily.take(30)
+        val recentMinutes = recentDays.sumOf { it.minutesHeard }
+        val recentPlays = recentDays.sumOf { it.playsCount }
+        val recentUnique = recentDays
+            .flatMap { it.topTracks }
+            .distinctBy { normalizeTrackKey(it.title, it.subtitle) }
+            .size
+
+        return SpotifyTopSummary(
+            topTracks = mergedTopTracks,
+            topArtists = mergedTopArtists,
+            playlists = existing?.playlists.orEmpty(),
+            recentlyPlayed = mergedRecent,
+            dailySummaries = mergedDaily,
+            recentWindowMinutes = recentMinutes,
+            recentWindowPlays = recentPlays,
+            recentWindowUniqueTracks = recentUnique,
+            likedSongsCount = maxOf(imported.likedSongsCount, existing?.likedSongsCount ?: 0),
+            followedArtistsCount = maxOf(imported.followedArtistsCount, existing?.followedArtistsCount ?: 0, mergedTopArtists.size),
+            playlistsCount = maxOf(imported.playlistsCount, existing?.playlistsCount ?: 0)
+        )
     }
 
     private fun loadTopStats(showLoadingStatus: Boolean) {

@@ -111,6 +111,6 @@ class SpotifyDailyHistoryStore(context: Context) {
     companion object {
         private const val PREFS_NAME = "spotify_keeper_daily_history"
         private const val KEY_DAILY_SUMMARIES = "daily_summaries_v1"
-        private const val MAX_DAYS_TO_KEEP = 120
+        private const val MAX_DAYS_TO_KEEP = 5000
     }
 }
