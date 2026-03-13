@@ -57,6 +57,7 @@ class SpotifyController(
     private var autoResumeInFlight = false
     private var lastAutoResumeAtMs: Long = 0L
     private var continuousPlayModeEnabled = false
+    private var lastContinuousEnsureAtMs: Long = 0L
 
     private var lastImageUriRaw: String? = null
     private var lastImageUrl: String? = null
@@ -66,6 +67,15 @@ class SpotifyController(
     private var spotifyAppRemote: SpotifyAppRemote? = null
     private var playerStateSubscription: Subscription<PlayerState>? = null
     private var connectTimeoutRunnable: Runnable? = null
+    private val continuousPlayRunnable = object : Runnable {
+        override fun run() {
+            if (!continuousPlayModeEnabled) {
+                return
+            }
+            ensureContinuousPlayback()
+            mainHandler.postDelayed(this, CONTINUOUS_PLAY_CHECK_MS)
+        }
+    }
 
     fun setCallbacks(
         onStatusChanged: (String) -> Unit,
@@ -123,6 +133,10 @@ class SpotifyController(
                     connecting = false
                     connected = true
                     spotifyAppRemote = appRemote
+                    if (continuousPlayModeEnabled) {
+                        pauseRequestedByUser = false
+                        startContinuousPlayLoop()
+                    }
                     subscribeToPlayerState(appRemote)
                     emitStatus("Conectado ao Spotify.")
                     pendingPlayUri?.let { queuedUri ->
@@ -226,7 +240,8 @@ class SpotifyController(
         continuousPlayModeEnabled = enabled
         if (enabled) {
             pauseRequestedByUser = false
-            spotifyAppRemote?.let { appRemote ->
+            startContinuousPlayLoop()
+            spotifyAppRemote?.let {
                 if (paused) {
                     resumeInternal(origin = "travar play")
                 } else {
@@ -234,6 +249,7 @@ class SpotifyController(
                 }
             } ?: emitStatus("Modo travar play ativo.")
         } else {
+            stopContinuousPlayLoop()
             emitStatus("Modo travar play desativado.")
         }
     }
@@ -267,6 +283,7 @@ class SpotifyController(
 
     fun disconnect() {
         clearConnectTimeout()
+        stopContinuousPlayLoop()
         connectStartedAtMs = 0L
         pendingPlayUri = null
         pendingResumeCurrent = false
@@ -387,6 +404,53 @@ class SpotifyController(
                         }
                 }
             }
+    }
+
+    private fun ensureContinuousPlayback() {
+        if (!continuousPlayModeEnabled || !connected || connecting || !paused) {
+            return
+        }
+        if (autoResumeInFlight) {
+            return
+        }
+        val appRemote = spotifyAppRemote ?: return
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastContinuousEnsureAtMs < CONTINUOUS_PLAY_CHECK_MS) {
+            return
+        }
+        lastContinuousEnsureAtMs = now
+        pauseRequestedByUser = false
+        autoResumeInFlight = true
+
+        appRemote.playerApi.resume()
+            .setResultCallback {
+                paused = false
+                autoResumeInFlight = false
+            }
+            .setErrorCallback {
+                val fallbackUri = lastUri
+                if (fallbackUri.isNullOrBlank()) {
+                    autoResumeInFlight = false
+                } else {
+                    appRemote.playerApi.play(fallbackUri)
+                        .setResultCallback {
+                            paused = false
+                            autoResumeInFlight = false
+                        }
+                        .setErrorCallback {
+                            autoResumeInFlight = false
+                        }
+                }
+            }
+    }
+
+    private fun startContinuousPlayLoop() {
+        stopContinuousPlayLoop()
+        mainHandler.post(continuousPlayRunnable)
+    }
+
+    private fun stopContinuousPlayLoop() {
+        mainHandler.removeCallbacks(continuousPlayRunnable)
     }
 
     private fun resumeInternal(origin: String) {
@@ -532,7 +596,8 @@ class SpotifyController(
 
     private companion object {
         const val SPOTIFY_PACKAGE_NAME = "com.spotify.music"
-        const val AUTO_RESUME_DEBOUNCE_MS = 5_000L
+        const val AUTO_RESUME_DEBOUNCE_MS = 1_200L
+        const val CONTINUOUS_PLAY_CHECK_MS = 1_500L
         const val CONNECT_TIMEOUT_MS = 20_000L
         const val DEFAULT_CLIENT_ID_PLACEHOLDER = "COLOQUE_SEU_CLIENT_ID_AQUI"
     }

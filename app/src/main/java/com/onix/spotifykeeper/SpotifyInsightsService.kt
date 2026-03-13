@@ -148,7 +148,7 @@ class SpotifyInsightsService(context: Context) {
         val topArtistsJson = getJson(accessToken, "https://api.spotify.com/v1/me/top/artists?limit=10&time_range=medium_term")
         val playlistsJson = getJson(accessToken, "https://api.spotify.com/v1/me/playlists?limit=10")
 
-        val recentEntries = fetchRecentEntries(accessToken, maxPages = 10, maxItems = 500)
+        val recentEntries = fetchRecentEntries(accessToken, maxPages = 40, maxItems = 2000)
         val recentUniqueTracks = buildRecentUniqueTracks(recentEntries, limit = 30)
         val dailySummaries = buildDailySummaries(recentEntries, maxDays = 30)
         val mergedDailySummaries = dailyHistoryStore.mergeLatest(dailySummaries)
@@ -276,29 +276,45 @@ class SpotifyInsightsService(context: Context) {
     }
 
     private fun fetchRecentEntries(accessToken: String, maxPages: Int, maxItems: Int): List<RecentEntry> {
-        var endpoint: String? = "https://api.spotify.com/v1/me/player/recently-played?limit=50"
         val entries = mutableListOf<RecentEntry>()
-        val visitedUrls = mutableSetOf<String>()
+        val seenPlayKeys = mutableSetOf<String>()
+        var beforeCursor: String? = null
         var page = 0
 
-        while (!endpoint.isNullOrBlank() && page < maxPages && entries.size < maxItems) {
-            if (!visitedUrls.add(endpoint)) {
-                break
-            }
-
+        while (page < maxPages && entries.size < maxItems) {
+            val endpoint = buildRecentlyPlayedEndpoint(beforeCursor)
             val json = getJson(accessToken, endpoint)
             val parsed = parseRecentEntriesPage(json)
             if (parsed.isEmpty()) {
                 break
             }
 
-            val remaining = maxItems - entries.size
-            entries.addAll(parsed.take(remaining))
-            endpoint = json.optString("next").takeIf { it.isNotBlank() }
+            parsed.forEach { entry ->
+                if (entries.size >= maxItems) {
+                    return@forEach
+                }
+                val dedupeKey = "${entry.trackKey}|${entry.playedAt.toEpochMilli()}"
+                if (seenPlayKeys.add(dedupeKey)) {
+                    entries.add(entry)
+                }
+            }
+
+            val nextBefore = json.optJSONObject("cursors")
+                ?.optString("before")
+                ?.takeIf { it.isNotBlank() }
+            if (nextBefore.isNullOrBlank() || nextBefore == beforeCursor) {
+                break
+            }
+            beforeCursor = nextBefore
             page += 1
         }
 
         return entries.sortedByDescending { it.playedAt }
+    }
+
+    private fun buildRecentlyPlayedEndpoint(beforeCursor: String?): String {
+        val base = "https://api.spotify.com/v1/me/player/recently-played?limit=50"
+        return if (beforeCursor.isNullOrBlank()) base else "$base&before=${beforeCursor.urlEncode()}"
     }
 
     private fun parseRecentEntriesPage(json: JSONObject): List<RecentEntry> {
@@ -530,7 +546,25 @@ class SpotifyInsightsService(context: Context) {
         } else {
             "track:$title artist:$artist"
         }
-        val endpoint = "https://api.spotify.com/v1/search?type=track&limit=1&q=${query.urlEncode()}"
+        val strictResult = searchTrackArtworkWithQuery(accessToken, query)
+        if (!strictResult.isNullOrBlank()) {
+            return strictResult
+        }
+
+        val simplifiedTitle = sanitizeTrackSearchTerm(title)
+        if (simplifiedTitle.equals(title, ignoreCase = true)) {
+            return null
+        }
+        val fallbackQuery = if (artist.isNullOrBlank()) {
+            simplifiedTitle
+        } else {
+            "$simplifiedTitle $artist"
+        }
+        return searchTrackArtworkWithQuery(accessToken, fallbackQuery)
+    }
+
+    private fun searchTrackArtworkWithQuery(accessToken: String, query: String): String? {
+        val endpoint = "https://api.spotify.com/v1/search?type=track&limit=3&q=${query.urlEncode()}"
         val json = getJson(accessToken, endpoint)
         val firstTrack = json.optJSONObject("tracks")
             ?.optJSONArray("items")
@@ -541,6 +575,14 @@ class SpotifyInsightsService(context: Context) {
             ?.optJSONObject(0)
             ?.optString("url")
             ?.takeIf { it.isNotBlank() }
+    }
+
+    private fun sanitizeTrackSearchTerm(title: String): String {
+        return title
+            .replace(Regex("""\([^)]*\)"""), " ")
+            .replace(Regex("""\[[^\]]*\]"""), " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
     }
 
     private fun searchArtistArtwork(accessToken: String, artist: String): String? {
@@ -653,6 +695,6 @@ class SpotifyInsightsService(context: Context) {
     }
 
     companion object {
-        private const val MAX_ARTWORK_LOOKUPS = 120
+        private const val MAX_ARTWORK_LOOKUPS = 220
     }
 }

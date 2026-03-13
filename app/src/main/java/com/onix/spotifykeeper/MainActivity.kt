@@ -437,6 +437,7 @@ class MainActivity : AppCompatActivity() {
             binding.trendMinutesValue.text = "0"
             binding.trendPlaysDelta.text = "-0%"
             binding.trendMinutesDelta.text = "-0%"
+            binding.todayAnalyticsText.text = "Hoje: 0 reproducoes • 0 min"
             applyDeltaColor(binding.trendPlaysDelta, isNegative = true)
             applyDeltaColor(binding.trendMinutesDelta, isNegative = true)
             return
@@ -444,8 +445,18 @@ class MainActivity : AppCompatActivity() {
 
         val today = summary.dailySummaries.getOrNull(0)
         val yesterday = summary.dailySummaries.getOrNull(1)
-        binding.trendPlaysValue.text = (today?.playsCount ?: 0).toString()
-        binding.trendMinutesValue.text = (today?.minutesHeard ?: 0).toString()
+        val todayPlays = today?.playsCount ?: 0
+        val todayMinutes = today?.minutesHeard ?: 0
+        val todayHours = todayMinutes / 60f
+        binding.trendPlaysValue.text = todayPlays.toString()
+        binding.trendMinutesValue.text = todayMinutes.toString()
+        binding.todayAnalyticsText.text = String.format(
+            Locale.getDefault(),
+            "Hoje: %d reproducoes • %d min (%.1f h)",
+            todayPlays,
+            todayMinutes,
+            todayHours
+        )
 
         val playsDelta = percentDelta(today?.playsCount, yesterday?.playsCount)
         val minutesDelta = percentDelta(today?.minutesHeard, yesterday?.minutesHeard)
@@ -487,12 +498,17 @@ class MainActivity : AppCompatActivity() {
                 row.recentFallbackText.text = fallbackLetter(item.title)
                 row.recentFallbackText.visibility = View.VISIBLE
             } else {
-                row.recentFallbackText.visibility = View.GONE
+                row.recentImage.setImageResource(R.drawable.bg_cover_missing)
+                row.recentFallbackText.text = fallbackLetter(item.title)
+                row.recentFallbackText.visibility = View.VISIBLE
                 row.recentImage.load(item.imageUrl) {
                     crossfade(false)
                     placeholder(R.drawable.bg_cover_missing)
                     error(R.drawable.bg_cover_missing)
                     listener(
+                        onSuccess = { _, _ ->
+                            row.recentFallbackText.visibility = View.GONE
+                        },
                         onError = { _, _ ->
                             row.recentImage.setImageResource(R.drawable.bg_cover_missing)
                             row.recentFallbackText.text = fallbackLetter(item.title)
@@ -554,12 +570,17 @@ class MainActivity : AppCompatActivity() {
                     tile.highlightFallbackText.text = fallbackLetter(item.title)
                     tile.highlightFallbackText.visibility = View.VISIBLE
                 } else {
-                    tile.highlightFallbackText.visibility = View.GONE
+                    tile.highlightImage.setImageResource(R.drawable.bg_cover_missing)
+                    tile.highlightFallbackText.text = fallbackLetter(item.title)
+                    tile.highlightFallbackText.visibility = View.VISIBLE
                     tile.highlightImage.load(item.imageUrl) {
                         crossfade(false)
                         placeholder(R.drawable.bg_cover_missing)
                         error(R.drawable.bg_cover_missing)
                         listener(
+                            onSuccess = { _, _ ->
+                                tile.highlightFallbackText.visibility = View.GONE
+                            },
                             onError = { _, _ ->
                                 tile.highlightImage.setImageResource(R.drawable.bg_cover_missing)
                                 tile.highlightFallbackText.text = fallbackLetter(item.title)
@@ -874,6 +895,9 @@ class MainActivity : AppCompatActivity() {
         if (artworkUrl.isNotBlank()) {
             if (lastNowPlayingArtworkKey != artworkUrl) {
                 lastNowPlayingArtworkKey = artworkUrl
+                binding.nowPlayingImage.setImageResource(R.drawable.bg_cover_missing)
+                binding.nowPlayingFallbackText.text = fallback
+                binding.nowPlayingFallbackText.visibility = View.VISIBLE
                 binding.nowPlayingImage.load(artworkUrl) {
                     crossfade(false)
                     placeholder(R.drawable.bg_cover_missing)
