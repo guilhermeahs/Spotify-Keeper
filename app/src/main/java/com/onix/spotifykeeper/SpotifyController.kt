@@ -29,7 +29,9 @@ data class NowPlayingVisual(
     val title: String?,
     val artist: String?,
     val artwork: Bitmap?,
-    val artworkUrl: String?
+    val artworkUrl: String?,
+    val playbackPositionMs: Long,
+    val durationMs: Long
 )
 
 class SpotifyController(
@@ -50,6 +52,7 @@ class SpotifyController(
     private var trackName: String? = null
     private var artistName: String? = null
     private var playbackPositionMs: Long = 0L
+    private var trackDurationMs: Long = 0L
     private var pauseRequestedByUser = false
     private var autoResumeInFlight = false
     private var lastAutoResumeAtMs: Long = 0L
@@ -252,6 +255,8 @@ class SpotifyController(
         connecting = false
         trackName = null
         artistName = null
+        playbackPositionMs = 0L
+        trackDurationMs = 0L
         currentArtwork = null
         lastImageUriRaw = null
         lastImageUrl = null
@@ -274,6 +279,7 @@ class SpotifyController(
     private fun applyPlayerState(state: PlayerState, appRemote: SpotifyAppRemote) {
         paused = state.isPaused
         playbackPositionMs = state.playbackPosition
+        trackDurationMs = state.track?.duration ?: 0L
         trackName = state.track?.name
         artistName = state.track?.artist?.name
         state.track?.uri?.takeIf { it.isNotBlank() }?.let { uri ->
@@ -485,7 +491,9 @@ class SpotifyController(
                     title = trackName,
                     artist = artistName,
                     artwork = currentArtwork,
-                    artworkUrl = lastImageUrl
+                    artworkUrl = lastImageUrl,
+                    playbackPositionMs = playbackPositionMs,
+                    durationMs = trackDurationMs
                 )
             )
         }
