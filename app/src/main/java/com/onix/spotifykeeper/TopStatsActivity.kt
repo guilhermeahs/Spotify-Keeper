@@ -66,7 +66,7 @@ class TopStatsActivity : AppCompatActivity() {
     private fun renderContent() {
         val summaryJson = intent.getStringExtra(EXTRA_SUMMARY_JSON).orEmpty()
         if (summaryJson.isBlank()) {
-            binding.windowSummaryText.text = "Sem dados para mostrar ainda."
+            renderEmptySummary("Sem dados para mostrar ainda.")
             addEmptyLabel(binding.dailySelectedContainer, "Sem dados diarios para mostrar.")
             addEmptyLabel(binding.tracksContainer, "Sem dados para mostrar.")
             addEmptyLabel(binding.artistsContainer, "Sem dados para mostrar.")
@@ -77,7 +77,7 @@ class TopStatsActivity : AppCompatActivity() {
 
         val summary = runCatching { SpotifyTopSummary.fromJsonString(summaryJson) }.getOrNull()
         if (summary == null) {
-            binding.windowSummaryText.text = "Falha ao abrir os tops."
+            renderEmptySummary("Falha ao abrir os tops.")
             addEmptyLabel(binding.dailySelectedContainer, "Falha ao abrir os tops diarios.")
             addEmptyLabel(binding.tracksContainer, "Falha ao abrir os tops.")
             addEmptyLabel(binding.artistsContainer, "Falha ao abrir os tops.")
@@ -86,7 +86,7 @@ class TopStatsActivity : AppCompatActivity() {
             return
         }
 
-        binding.windowSummaryText.text = buildWindowSummary(summary)
+        renderSummaryCard(summary)
         renderDayChips(summary.dailySummaries)
 
         renderSection(binding.tracksContainer, summary.topTracks, "Sem musicas no momento.")
@@ -95,14 +95,83 @@ class TopStatsActivity : AppCompatActivity() {
         renderSection(binding.recentContainer, summary.recentlyPlayed, "Sem historico recente.")
     }
 
+    private fun renderSummaryCard(summary: SpotifyTopSummary) {
+        binding.windowSummaryText.text = buildWindowSummary(summary)
+        binding.metricMinutesValue.text = summary.recentWindowMinutes.toString()
+        binding.metricPlaysValue.text = summary.recentWindowPlays.toString()
+        binding.metricUniqueTracksValue.text = summary.recentWindowUniqueTracks.toString()
+        binding.metricLikedValue.text = summary.likedSongsCount.toString()
+        binding.metricFollowedArtistsValue.text = summary.followedArtistsCount.toString()
+        binding.metricPlaylistsValue.text = summary.playlistsCount.toString()
+        binding.summaryInsightText.text = buildSummaryInsight(summary)
+
+        val highlightedTrack = summary.topTracks.firstOrNull() ?: summary.recentlyPlayed.firstOrNull()
+        bindSummaryTopTrack(highlightedTrack)
+    }
+
+    private fun renderEmptySummary(message: String) {
+        binding.windowSummaryText.text = message
+        binding.metricMinutesValue.text = "--"
+        binding.metricPlaysValue.text = "--"
+        binding.metricUniqueTracksValue.text = "--"
+        binding.metricLikedValue.text = "--"
+        binding.metricFollowedArtistsValue.text = "--"
+        binding.metricPlaylistsValue.text = "--"
+        binding.summaryInsightText.text = "Escute musicas para popular o resumo automaticamente."
+        bindSummaryTopTrack(null)
+    }
+
     private fun buildWindowSummary(summary: SpotifyTopSummary): String {
         if (summary.recentWindowPlays <= 0) {
             return "Sem historico recente suficiente para montar estatisticas."
         }
 
-        return "Janela recente: ${summary.recentWindowMinutes} min, ${summary.recentWindowPlays} plays, " +
-            "${summary.recentWindowUniqueTracks} musicas unicas. Curtidas: ${summary.likedSongsCount}. " +
-            "Seguindo artistas: ${summary.followedArtistsCount}. Playlists: ${summary.playlistsCount}."
+        return "Nos ultimos dados coletados: ${summary.recentWindowMinutes} min ouvidos e ${summary.recentWindowPlays} plays."
+    }
+
+    private fun buildSummaryInsight(summary: SpotifyTopSummary): String {
+        if (summary.recentWindowPlays <= 0) {
+            return "Conecte e reproduza para gerar insights diarios e destaques."
+        }
+        return "Voce explorou ${summary.recentWindowUniqueTracks} musicas unicas nesse recorte."
+    }
+
+    private fun bindSummaryTopTrack(item: SpotifyMediaItem?) {
+        if (item == null) {
+            binding.summaryTopTrackTitle.text = "Sem musica em destaque"
+            binding.summaryTopTrackSubtitle.text = "Escute para gerar seu destaque."
+            binding.summaryTopTrackImage.setImageResource(R.drawable.bg_cover_missing)
+            binding.summaryTopTrackFallbackText.text = "S"
+            binding.summaryTopTrackFallbackText.visibility = View.VISIBLE
+            return
+        }
+
+        binding.summaryTopTrackTitle.text = item.title
+        binding.summaryTopTrackSubtitle.text = item.subtitle.orEmpty().ifBlank { "Sem artista informado." }
+
+        if (item.imageUrl.isNullOrBlank()) {
+            binding.summaryTopTrackImage.setImageResource(R.drawable.bg_cover_missing)
+            binding.summaryTopTrackFallbackText.text = fallbackLetter(item.title)
+            binding.summaryTopTrackFallbackText.visibility = View.VISIBLE
+            return
+        }
+
+        binding.summaryTopTrackFallbackText.visibility = View.GONE
+        binding.summaryTopTrackImage.load(item.imageUrl) {
+            crossfade(false)
+            placeholder(R.drawable.bg_cover_missing)
+            error(R.drawable.bg_cover_missing)
+            listener(
+                onSuccess = { _, _ ->
+                    binding.summaryTopTrackFallbackText.visibility = View.GONE
+                },
+                onError = { _, _ ->
+                    binding.summaryTopTrackImage.setImageResource(R.drawable.bg_cover_missing)
+                    binding.summaryTopTrackFallbackText.text = fallbackLetter(item.title)
+                    binding.summaryTopTrackFallbackText.visibility = View.VISIBLE
+                }
+            )
+        }
     }
 
     private fun renderDayChips(items: List<SpotifyDailySummary>) {
@@ -208,14 +277,38 @@ class TopStatsActivity : AppCompatActivity() {
         }
 
         if (item.imageUrl.isNullOrBlank()) {
-            row.entryImage.setImageResource(R.drawable.ic_music_placeholder)
-        } else {
-            row.entryImage.load(item.imageUrl) {
-                crossfade(false)
-                placeholder(row.entryImage.drawable)
-                error(R.drawable.ic_music_placeholder)
-            }
+            applyEntryFallback(row, item.title)
+            return
         }
+
+        row.entryFallbackText.visibility = View.GONE
+        row.entryImage.load(item.imageUrl) {
+            crossfade(false)
+            placeholder(R.drawable.bg_cover_missing)
+            error(R.drawable.bg_cover_missing)
+            listener(
+                onSuccess = { _, _ ->
+                    row.entryFallbackText.visibility = View.GONE
+                },
+                onError = { _, _ ->
+                    applyEntryFallback(row, item.title)
+                }
+            )
+        }
+    }
+
+    private fun applyEntryFallback(row: ItemTopEntryBinding, title: String) {
+        row.entryImage.setImageResource(R.drawable.bg_cover_missing)
+        row.entryFallbackText.text = fallbackLetter(title)
+        row.entryFallbackText.visibility = View.VISIBLE
+    }
+
+    private fun fallbackLetter(text: String?): String {
+        val candidate = text
+            ?.firstOrNull { it.isLetterOrDigit() }
+            ?.uppercaseChar()
+            ?.toString()
+        return candidate ?: "S"
     }
 
     private fun addEmptyLabel(container: LinearLayout, message: String) {

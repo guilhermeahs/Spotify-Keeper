@@ -3,6 +3,7 @@ package com.onix.spotifykeeper
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.view.View
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -163,11 +164,14 @@ class MainActivity : AppCompatActivity() {
     private fun renderNowPlaying(visual: NowPlayingVisual) {
         val title = visual.title?.trim().orEmpty()
         val artist = visual.artist?.trim().orEmpty()
+        val fallbackLetter = fallbackLetter(title)
 
         if (title.isBlank()) {
             binding.nowPlayingTitle.text = "Nada tocando agora"
             binding.nowPlayingArtist.text = "Conecte no Spotify e escolha uma musica."
-            binding.nowPlayingImage.setImageResource(R.drawable.ic_music_placeholder)
+            binding.nowPlayingImage.setImageResource(R.drawable.bg_cover_missing)
+            binding.nowPlayingFallbackText.text = "S"
+            binding.nowPlayingFallbackText.visibility = View.VISIBLE
             lastNowPlayingArtworkKey = null
             return
         }
@@ -177,6 +181,7 @@ class MainActivity : AppCompatActivity() {
 
         if (visual.artwork != null) {
             binding.nowPlayingImage.setImageBitmap(visual.artwork)
+            binding.nowPlayingFallbackText.visibility = View.GONE
             lastNowPlayingArtworkKey = "bitmap"
             return
         }
@@ -187,14 +192,34 @@ class MainActivity : AppCompatActivity() {
                 lastNowPlayingArtworkKey = artworkUrl
                 binding.nowPlayingImage.load(artworkUrl) {
                     crossfade(false)
-                    placeholder(R.drawable.ic_music_placeholder)
-                    error(R.drawable.ic_music_placeholder)
+                    placeholder(R.drawable.bg_cover_missing)
+                    error(R.drawable.bg_cover_missing)
+                    listener(
+                        onSuccess = { _, _ ->
+                            binding.nowPlayingFallbackText.visibility = View.GONE
+                        },
+                        onError = { _, _ ->
+                            binding.nowPlayingImage.setImageResource(R.drawable.bg_cover_missing)
+                            binding.nowPlayingFallbackText.text = fallbackLetter
+                            binding.nowPlayingFallbackText.visibility = View.VISIBLE
+                        }
+                    )
                 }
             }
         } else if (lastNowPlayingArtworkKey != "placeholder") {
-            binding.nowPlayingImage.setImageResource(R.drawable.ic_music_placeholder)
+            binding.nowPlayingImage.setImageResource(R.drawable.bg_cover_missing)
+            binding.nowPlayingFallbackText.text = fallbackLetter
+            binding.nowPlayingFallbackText.visibility = View.VISIBLE
             lastNowPlayingArtworkKey = "placeholder"
         }
+    }
+
+    private fun fallbackLetter(text: String?): String {
+        val char = text
+            ?.firstOrNull { it.isLetterOrDigit() }
+            ?.uppercaseChar()
+            ?.toString()
+        return char ?: "S"
     }
 
     private fun checkForUpdates(silent: Boolean) {
