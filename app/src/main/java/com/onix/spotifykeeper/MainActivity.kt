@@ -159,8 +159,13 @@ class MainActivity : AppCompatActivity() {
             requestTopRefresh()
         }
 
-        binding.profileImage.setOnClickListener {
+        binding.updateHeaderButton.setOnClickListener {
             checkForUpdates(silent = false)
+        }
+
+        binding.profileImage.setOnClickListener {
+            showPage(MainPage.HOME)
+            binding.bottomNav.selectedItemId = R.id.nav_home
         }
 
         binding.connectQuickButton.setOnClickListener {
@@ -179,6 +184,15 @@ class MainActivity : AppCompatActivity() {
 
         binding.refreshQuickButton.setOnClickListener {
             requestTopRefresh()
+        }
+
+        binding.updateAppButton.setOnClickListener {
+            checkForUpdates(silent = false)
+        }
+
+        binding.viewStatsCard.setOnClickListener {
+            showPage(MainPage.STATS)
+            binding.bottomNav.selectedItemId = R.id.nav_stats
         }
 
         binding.keepAliveQuickButton.setOnClickListener {
@@ -368,6 +382,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderHighlights(summary: SpotifyTopSummary?) {
         binding.highlightsGridContainer.removeAllViews()
+        binding.highlightsTitleText.text = when (highlightsPeriod) {
+            HighlightsPeriod.FOUR_WEEKS -> "Destaques ultimas 4 semanas"
+            HighlightsPeriod.SIX_MONTHS -> "Destaques ultimos 6 meses"
+            HighlightsPeriod.ALL_TIME -> "Destaques completos"
+        }
         val items = buildHighlightsForPeriod(summary).take(18)
         if (items.isEmpty()) {
             val empty = TextView(this).apply {
@@ -441,15 +460,78 @@ class MainActivity : AppCompatActivity() {
 
     private fun buildHighlightsForPeriod(summary: SpotifyTopSummary?): List<SpotifyMediaItem> {
         summary ?: return emptyList()
-        val allDaily = summary.dailySummaries
-            .flatMap { it.topTracks }
-            .distinctBy { it.title + (it.subtitle ?: "") }
-
-        return when (highlightsPeriod) {
-            HighlightsPeriod.FOUR_WEEKS -> summary.topTracks
-            HighlightsPeriod.SIX_MONTHS -> (summary.topTracks + summary.recentlyPlayed).distinctBy { it.title + (it.subtitle ?: "") }
-            HighlightsPeriod.ALL_TIME -> (summary.topTracks + summary.recentlyPlayed + allDaily).distinctBy { it.title + (it.subtitle ?: "") }
+        val daysWindow = when (highlightsPeriod) {
+            HighlightsPeriod.FOUR_WEEKS -> 28
+            HighlightsPeriod.SIX_MONTHS -> 180
+            HighlightsPeriod.ALL_TIME -> Int.MAX_VALUE
         }
+
+        val selectedDays = summary.dailySummaries
+            .sortedByDescending { it.dateIso }
+            .take(daysWindow)
+
+        val rankedFromDaily = rankHighlightsFromDaily(selectedDays)
+        val fallback = when (highlightsPeriod) {
+            HighlightsPeriod.FOUR_WEEKS -> summary.topTracks + summary.recentlyPlayed.take(10)
+            HighlightsPeriod.SIX_MONTHS -> summary.topTracks + summary.recentlyPlayed
+            HighlightsPeriod.ALL_TIME -> summary.topTracks + summary.recentlyPlayed + summary.dailySummaries.flatMap { it.topTracks }
+        }
+
+        return (rankedFromDaily + fallback)
+            .distinctBy { normalizeTrackKey(it.title, it.subtitle) }
+    }
+
+    private fun rankHighlightsFromDaily(days: List<SpotifyDailySummary>): List<SpotifyMediaItem> {
+        if (days.isEmpty()) {
+            return emptyList()
+        }
+
+        data class TrackAgg(
+            var score: Int = 0,
+            var imageUrl: String? = null,
+            var artistLabel: String? = null
+        )
+
+        val buckets = linkedMapOf<String, TrackAgg>()
+        days.forEach { day ->
+            day.topTracks.forEachIndexed { index, item ->
+                val key = normalizeTrackKey(item.title, item.subtitle)
+                val agg = buckets.getOrPut(key) { TrackAgg() }
+                agg.score += (6 - index).coerceAtLeast(1)
+                if (agg.imageUrl.isNullOrBlank() && !item.imageUrl.isNullOrBlank()) {
+                    agg.imageUrl = item.imageUrl
+                }
+                if (agg.artistLabel.isNullOrBlank()) {
+                    agg.artistLabel = extractArtistLabel(item.subtitle)
+                }
+            }
+        }
+
+        return buckets.entries
+            .sortedByDescending { it.value.score }
+            .map { (key, agg) ->
+                val title = key.substringBefore("::")
+                val artist = agg.artistLabel.orEmpty()
+                SpotifyMediaItem(
+                    title = title,
+                    subtitle = if (artist.isBlank()) "${agg.score} pts no periodo" else "$artist - ${agg.score} pts no periodo",
+                    imageUrl = agg.imageUrl
+                )
+            }
+    }
+
+    private fun normalizeTrackKey(title: String?, subtitle: String?): String {
+        val normalizedTitle = title.orEmpty().trim().lowercase(Locale.ROOT)
+        val normalizedArtist = extractArtistLabel(subtitle).trim().lowercase(Locale.ROOT)
+        return "$normalizedTitle::$normalizedArtist"
+    }
+
+    private fun extractArtistLabel(subtitle: String?): String {
+        val value = subtitle.orEmpty()
+        if (value.isBlank()) {
+            return ""
+        }
+        return value.substringBefore(" - ").substringBefore(" • ").trim()
     }
 
     private fun renderStats(summary: SpotifyTopSummary?) {
